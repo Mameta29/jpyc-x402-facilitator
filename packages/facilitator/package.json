@@ -1,0 +1,54 @@
+{
+  "name": "@jpyc-x402/facilitator",
+  "version": "0.1.0",
+  "description": "Hono server exposing /verify, /settle, /supported for the x402 'exact' scheme on JPYC.",
+  "license": "MIT",
+  "author": "Mameta29",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mameta29/jpyc-x402-facilitator.git",
+    "directory": "packages/facilitator"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./db": {
+      "types": "./dist/db/index.d.ts",
+      "import": "./dist/db/index.js"
+    }
+  },
+  "files": ["dist", "drizzle", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@jpyc-x402/evm": "workspace:*",
+    "@jpyc-x402/shared": "workspace:*",
+    "drizzle-orm": "^0.36.0",
+    "hono": "^4.6.0",
+    "pg": "^8.13.0",
+    "viem": "^2.21.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.28.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
