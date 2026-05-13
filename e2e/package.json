@@ -1,0 +1,25 @@
+{
+  "name": "@jpyc-x402/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "echo 'no build for e2e'",
+    "clean": "rm -rf .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "test": "echo 'use test:e2e'"
+  },
+  "dependencies": {
+    "@jpyc-x402/client": "workspace:*",
+    "@jpyc-x402/evm": "workspace:*",
+    "@jpyc-x402/shared": "workspace:*",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
