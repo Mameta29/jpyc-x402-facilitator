@@ -1,0 +1,201 @@
+openapi: 3.1.0
+info:
+  title: JPYC x402 Facilitator
+  version: "0.1.0"
+  description: |
+    REST surface of the JPYC x402 facilitator. Spec-conformant with
+    `coinbase/x402` v2 (`specs/x402-specification-v2.md`).
+
+    The facilitator is the broadcasting party in the x402 protocol: clients
+    sign EIP-3009 `transferWithAuthorization` authorizations off-chain, the
+    facilitator verifies and submits them, paying gas.
+  license:
+    name: MIT
+servers:
+  - url: https://facilitator.jpyc-x402.com
+    description: Reference hosted deployment
+  - url: http://localhost:8402
+    description: Local dev
+paths:
+  /supported:
+    get:
+      summary: List supported (scheme, network) kinds and signers.
+      responses:
+        "200":
+          description: Supported kinds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportedResponse"
+  /verify:
+    post:
+      summary: Verify a payment authorization without broadcasting.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+      responses:
+        "200":
+          description: Verification result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "400":
+          description: Malformed request body or unsupported scheme/network.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+  /settle:
+    post:
+      summary: Verify and broadcast a payment authorization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+      responses:
+        "200":
+          description: Settlement attempted (success or settlement-time failure).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementResponse"
+        "429":
+          description: Rate limited (per-payer cap exceeded).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementResponse"
+        "503":
+          description: Facilitator relayer wallet is critically low on native gas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementResponse"
+  /health:
+    get:
+      summary: Liveness probe.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+components:
+  schemas:
+    Address:
+      type: string
+      pattern: "^0x[a-fA-F0-9]{40}$"
+    Caip2:
+      type: string
+      example: "eip155:137"
+    DecimalString:
+      type: string
+      pattern: "^[0-9]+$"
+    PaymentRequirements:
+      type: object
+      required: [scheme, network, amount, asset, payTo, maxTimeoutSeconds, extra]
+      properties:
+        scheme: { type: string, enum: [exact] }
+        network: { $ref: "#/components/schemas/Caip2" }
+        amount: { $ref: "#/components/schemas/DecimalString" }
+        asset: { $ref: "#/components/schemas/Address" }
+        payTo: { $ref: "#/components/schemas/Address" }
+        maxTimeoutSeconds: { type: integer, minimum: 1 }
+        extra:
+          type: object
+          required: [assetTransferMethod, name, version]
+          properties:
+            assetTransferMethod: { type: string, enum: [eip3009] }
+            name: { type: string, example: "JPY Coin" }
+            version: { type: string, example: "1" }
+            decimals: { type: integer, minimum: 0 }
+            symbol: { type: string }
+    Authorization:
+      type: object
+      required: [from, to, value, validAfter, validBefore, nonce]
+      properties:
+        from: { $ref: "#/components/schemas/Address" }
+        to: { $ref: "#/components/schemas/Address" }
+        value: { $ref: "#/components/schemas/DecimalString" }
+        validAfter: { $ref: "#/components/schemas/DecimalString" }
+        validBefore: { $ref: "#/components/schemas/DecimalString" }
+        nonce:
+          type: string
+          pattern: "^0x[a-fA-F0-9]{64}$"
+    PaymentPayload:
+      type: object
+      required: [x402Version, accepted, payload]
+      properties:
+        x402Version: { type: integer, enum: [2] }
+        resource:
+          type: object
+          required: [url]
+          properties:
+            url: { type: string }
+            description: { type: string }
+            mimeType: { type: string }
+        accepted: { $ref: "#/components/schemas/PaymentRequirements" }
+        payload:
+          type: object
+          required: [signature, authorization]
+          properties:
+            signature:
+              type: string
+              pattern: "^0x[a-fA-F0-9]{130}$"
+            authorization: { $ref: "#/components/schemas/Authorization" }
+    VerifyRequest:
+      type: object
+      required: [x402Version, paymentPayload, paymentRequirements]
+      properties:
+        x402Version: { type: integer, enum: [2] }
+        paymentPayload: { $ref: "#/components/schemas/PaymentPayload" }
+        paymentRequirements: { $ref: "#/components/schemas/PaymentRequirements" }
+    VerifyResponse:
+      type: object
+      required: [isValid]
+      properties:
+        isValid: { type: boolean }
+        invalidReason: { type: string }
+        payer: { $ref: "#/components/schemas/Address" }
+    SettlementResponse:
+      type: object
+      required: [success, transaction, network]
+      properties:
+        success: { type: boolean }
+        errorReason: { type: string }
+        payer: { $ref: "#/components/schemas/Address" }
+        transaction: { type: string, description: "tx hash; empty string on failure" }
+        network: { $ref: "#/components/schemas/Caip2" }
+        amount: { $ref: "#/components/schemas/DecimalString" }
+    SupportedKind:
+      type: object
+      required: [x402Version, scheme, network]
+      properties:
+        x402Version: { type: integer, enum: [2] }
+        scheme: { type: string, enum: [exact] }
+        network: { $ref: "#/components/schemas/Caip2" }
+    SupportedResponse:
+      type: object
+      required: [kinds, extensions, signers]
+      properties:
+        kinds:
+          type: array
+          items: { $ref: "#/components/schemas/SupportedKind" }
+        extensions:
+          type: array
+          items: { type: string }
+        signers:
+          type: object
+          additionalProperties:
+            type: array
+            items: { $ref: "#/components/schemas/Address" }
