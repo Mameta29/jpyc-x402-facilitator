@@ -1,0 +1,47 @@
+{
+  "name": "@jpyc-x402/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing facilitator tools (verify, settle, supported, create_and_settle) to LLM agents.",
+  "license": "MIT",
+  "author": "Mameta29",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mameta29/jpyc-x402-facilitator.git",
+    "directory": "packages/mcp"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "jpyc-x402-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node dist/bin.js"
+  },
+  "dependencies": {
+    "@jpyc-x402/client": "workspace:*",
+    "@jpyc-x402/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "viem": "^2.21.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
