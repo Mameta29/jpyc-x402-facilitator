@@ -1,0 +1,33 @@
+{
+  "name": "@jpyc-x402/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deployable Hono server hosting the JPYC x402 facilitator.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "clean": "rm -rf dist .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'no tests in apps/server'"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@jpyc-x402/evm": "workspace:*",
+    "@jpyc-x402/facilitator": "workspace:*",
+    "@jpyc-x402/shared": "workspace:*",
+    "hono": "^4.6.0",
+    "pg": "^8.13.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
