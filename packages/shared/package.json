@@ -1,0 +1,40 @@
+{
+  "name": "@jpyc-x402/shared",
+  "version": "0.1.0",
+  "description": "Shared types, CAIP-2 helpers, JPYC chain registry, EIP-712 domain, and zod schemas for x402 on JPYC.",
+  "license": "MIT",
+  "author": "Mameta29",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mameta29/jpyc-x402-facilitator.git",
+    "directory": "packages/shared"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "viem": "^2.21.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
