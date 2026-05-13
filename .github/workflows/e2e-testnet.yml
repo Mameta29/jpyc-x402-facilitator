@@ -1,0 +1,25 @@
+name: E2E (Polygon Amoy testnet)
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # nightly at 05:00 UTC
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.7.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test:e2e
+        env:
+          E2E_BUYER_PRIVATE_KEY: ${{ secrets.E2E_BUYER_PRIVATE_KEY }}
+          E2E_RELAYER_PRIVATE_KEY: ${{ secrets.E2E_RELAYER_PRIVATE_KEY }}
+          E2E_SHOP_ADDRESS: ${{ secrets.E2E_SHOP_ADDRESS }}
+          RPC_URLS_80002: ${{ secrets.RPC_URLS_80002 }}
