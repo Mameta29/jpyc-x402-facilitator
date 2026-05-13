@@ -2,12 +2,18 @@
 
 ## Top-up relayer wallets
 
+> **Note**: when the facilitator is co-located with the JPYC EC Platform and
+> reuses the EC's `EXECUTOR_PRIVATE_KEY`, this is the same operational task
+> as the EC's existing relayer top-up. There is no separate facilitator
+> wallet to track — both services share one funded address per chain.
+
 The balance monitor logs to stdout when a wallet drops below
 `RELAYER_BALANCE_LOW_NATIVE`, and refuses settlement when below
 `RELAYER_BALANCE_CRITICAL_NATIVE`. To top up:
 
 1. Identify the relayer address per chain. `GET /supported` returns the
-   addresses under `signers["eip155:*"]`.
+   addresses under `signers["eip155:*"]`. For shared-wallet deployments this
+   matches the EC platform's `EXECUTOR_PRIVATE_KEY` address.
 2. Send native gas from a hot/operations wallet:
    - Polygon: POL
    - Ethereum: ETH

@@ -22,7 +22,7 @@ is no lock-in — switching to your own deployment is one env var.
 | Compute | 0.5 vCPU / 512 MB RAM per replica | Hono is async; CPU-bound only on signature recovery |
 | Postgres | shared instance | nonce dedupe + rate limit; <100 MB even for high traffic |
 | RPC per chain | 1 private + 1 backup endpoint | public RPCs throttle; we use viem `fallback` |
-| Relayer wallet per chain | ~0.1 native token | settle costs <50k gas; top up monthly |
+| Relayer wallet | reuse the EC platform's existing `EXECUTOR_PRIVATE_KEY` | already funded on every supported chain; one wallet for both EC's おまかせプラン and x402 settle. Top-up is the same operational task. |
 
 ## Bootstrapping
 
