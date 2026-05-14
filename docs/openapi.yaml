@@ -54,6 +54,14 @@ paths:
   /settle:
     post:
       summary: Verify and broadcast a payment authorization.
+      description: |
+        Idempotency: if the same `(network, payer, nonce)` triple was settled
+        successfully within the in-memory NonceCache TTL (default 5 min), the
+        cached transaction hash is returned with `success: true` and **no
+        re-broadcast occurs**. The cache is best-effort — losing it (process
+        restart, isolate eviction) is safe because EIP-3009's
+        `_authorizationStates` mapping is the authoritative source: a duplicate
+        broadcast simply reverts on-chain.
       requestBody:
         required: true
         content:
@@ -62,7 +70,10 @@ paths:
               $ref: "#/components/schemas/VerifyRequest"
       responses:
         "200":
-          description: Settlement attempted (success or settlement-time failure).
+          description: |
+            Settlement attempted. Returns `success: true` for both fresh
+            broadcasts and idempotent cache hits; the latter omits an RPC
+            round-trip entirely.
           content:
             application/json:
               schema:

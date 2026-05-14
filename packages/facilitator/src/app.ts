@@ -200,7 +200,7 @@ export function createApp(deps: AppDeps) {
       }
       return c.json(body)
     } catch (e) {
-      return errorToSettleResponse(c, e, deps.nodeEnv)
+      return await errorToSettleResponse(c, e, deps.nodeEnv)
     }
   })
 
@@ -241,13 +241,36 @@ function errorToVerifyResponse(c: Context, e: unknown, nodeEnv: AppDeps["nodeEnv
   return c.json(body, 400)
 }
 
-function errorToSettleResponse(c: Context, e: unknown, nodeEnv: AppDeps["nodeEnv"]) {
+/**
+ * Best-effort recovery of the request's `paymentRequirements.network` so error
+ * responses can fill the `network` field correctly. Returns the unknown-network
+ * sentinel only if we genuinely can't tell (malformed body that already failed
+ * Zod parsing).
+ */
+async function recoverNetwork(c: Context): Promise<string> {
+  try {
+    // Hono caches the parsed body, so this won't re-read the stream when the
+    // handler already consumed it. If parse failed, we get undefined and fall
+    // through to the sentinel.
+    const json = (await c.req.json().catch(() => undefined)) as
+      | { paymentRequirements?: { network?: string } }
+      | undefined
+    const n = json?.paymentRequirements?.network
+    if (typeof n === "string" && n.length > 0) return n
+  } catch {
+    // ignore — fall through
+  }
+  return "eip155:0"
+}
+
+async function errorToSettleResponse(c: Context, e: unknown, nodeEnv: AppDeps["nodeEnv"]) {
+  const network = await recoverNetwork(c)
   if (e instanceof X402Error) {
     const body: SettlementResponse = {
       success: false,
       errorReason: e.code,
       transaction: "",
-      network: "eip155:0",
+      network,
     }
     return c.json(body, asStatus(e.httpStatus))
   }
@@ -255,7 +278,7 @@ function errorToSettleResponse(c: Context, e: unknown, nodeEnv: AppDeps["nodeEnv
     success: false,
     errorReason: nodeEnv === "production" ? "invalid_payload" : (e as Error).message,
     transaction: "",
-    network: "eip155:0",
+    network,
   }
   return c.json(body, 400)
 }

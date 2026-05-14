@@ -16,16 +16,8 @@ import {
   listJpycChains,
 } from "@jpyc-x402/shared"
 import type { Account, Address, PublicClient } from "viem"
-import {
-  buildPublicClient,
-  buildWalletClient,
-  envRpcResolver,
-  type RpcResolver,
-} from "./rpc.js"
-import {
-  envPrivateKeyRelayerProvider,
-  type RelayerSignerProvider,
-} from "./signers.js"
+import { buildPublicClient, buildWalletClient, envRpcResolver, type RpcResolver } from "./rpc.js"
+import { envPrivateKeyRelayerProvider, type RelayerSignerProvider } from "./signers.js"
 import { verifyExactPayment, type VerifyResult } from "./verify.js"
 import { settleExactPayment, type SettleResult } from "./settle.js"
 
@@ -75,18 +67,22 @@ export class ExactEvmFacilitator {
         if (!addresses.some((a) => a.toLowerCase() === acc.address.toLowerCase())) {
           addresses.push(acc.address)
         }
-      } catch {
+      } catch (e) {
         // If a chain has no configured signer, skip it; /supported still
         // advertises the chain because verify (read-only) might still work.
+        // We log because operators usually want to notice that a chain they
+        // enabled has no relayer wallet — silent skip has bitten us in staging.
+        console.warn(
+          `[facilitator.signers] no relayer signer for chainId=${chainId}, ` +
+            `omitted from /supported.signers — settle on this chain will fail. ` +
+            `cause: ${e instanceof Error ? e.message : String(e)}`,
+        )
       }
     }
     return { "eip155:*": addresses }
   }
 
-  async verify(
-    payload: PaymentPayload,
-    required: PaymentRequirements,
-  ): Promise<VerifyResult> {
+  async verify(payload: PaymentPayload, required: PaymentRequirements): Promise<VerifyResult> {
     const chainId = caip2ToEvmChainId(required.network)
     if (!this.isChainEnabled(chainId)) {
       return { ok: false, reason: `invalid_network: chainId=${chainId} not enabled` }

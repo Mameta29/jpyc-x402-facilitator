@@ -115,9 +115,7 @@ export class InProcessSettleRunner implements SettleRunner {
     // simpler code. Hosts that need higher throughput can implement their own
     // SettleRunner that splits broadcast/receipt explicitly.
     const chainId = caip2ToEvmChainId(requirements.network)
-    return await this.runSerialised(chainId, () =>
-      this.facilitator.settle(payload, requirements),
-    )
+    return await this.runSerialised(chainId, () => this.facilitator.settle(payload, requirements))
   }
 
   private async runSerialised<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
@@ -135,10 +133,6 @@ export class InProcessSettleRunner implements SettleRunner {
       return await fn()
     } finally {
       release()
-      // Drop the mutex chain when no one is waiting.
-      if (this.mutexes.get(chainId) === next || this.mutexes.get(chainId)?.then(() => next) === next) {
-        // best-effort cleanup; not critical for correctness.
-      }
     }
   }
 }

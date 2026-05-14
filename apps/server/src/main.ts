@@ -33,9 +33,7 @@ import { getJpycChain } from "@jpyc-x402/shared"
 
 async function main() {
   const config = loadConfig()
-  console.info(
-    `[startup] env=${config.nodeEnv} chains=${config.enabledChainIds.join(",")}`,
-  )
+  console.info(`[startup] env=${config.nodeEnv} chains=${config.enabledChainIds.join(",")}`)
 
   const rpcResolver = envRpcResolver()
   const signerProvider = envPrivateKeyRelayerProvider()
@@ -90,9 +88,17 @@ async function main() {
     console.info(`[shutdown] received ${signal}`)
     clearInterval(balanceTimer)
     server.close(() => {
+      console.info(`[shutdown] all in-flight requests drained, exiting clean`)
       process.exit(0)
     })
-    setTimeout(() => process.exit(1), 10_000).unref()
+    setTimeout(() => {
+      console.warn(
+        `[shutdown] force exit after 10s grace period — in-flight settle ` +
+          `requests may have been cut off mid-broadcast. Inspect logs above ` +
+          `for any settle.ok lines without a matching downstream confirmation.`,
+      )
+      process.exit(1)
+    }, 10_000).unref()
   }
   process.on("SIGTERM", () => void shutdown("SIGTERM"))
   process.on("SIGINT", () => void shutdown("SIGINT"))

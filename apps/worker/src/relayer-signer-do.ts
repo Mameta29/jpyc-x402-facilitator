@@ -72,6 +72,19 @@ export type DoBroadcastResult = DoBroadcastOk | DoBroadcastFail
  *   const result = await stub.broadcast({...})
  */
 export class RelayerSignerDO extends DurableObject<WorkerEnv> {
+  // Derive the viem Account once per DO instance. `privateKeyToAccount` runs
+  // secp256k1 keypair derivation on every call — cheap individually, but this
+  // path is on the broadcast hot loop and the key never changes for the life
+  // of the isolate.
+  private cachedAccount?: ReturnType<typeof privateKeyToAccount>
+
+  private getAccount() {
+    if (!this.cachedAccount) {
+      this.cachedAccount = privateKeyToAccount(this.env.RELAYER_PRIVATE_KEY as Hex)
+    }
+    return this.cachedAccount
+  }
+
   /**
    * Broadcast a transferWithAuthorization tx, holding the DO lock just long
    * enough to serialize nonce assignment and the actual `eth_sendRawTransaction`
@@ -81,7 +94,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       try {
         const chain = getJpycChain(input.chainId)
-        const account = privateKeyToAccount(this.env.RELAYER_PRIVATE_KEY as Hex)
+        const account = this.getAccount()
         const rpcUrls = readRpcUrls(this.env, input.chainId, chain.publicRpc)
         const wallet = createWalletClient({
           account,

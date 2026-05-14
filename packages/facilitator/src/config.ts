@@ -51,7 +51,9 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("*"),
 })
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): FacilitatorConfig {
+export function loadConfig(
+  env: Record<string, string | undefined> = process.env,
+): FacilitatorConfig {
   const parsed = envSchema.parse(env)
 
   let enabledChainIds: number[]
@@ -66,6 +68,21 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     enabledChainIds = listJpycChains({ testnetOnly: true }).map((c) => c.chainId)
   } else {
     enabledChainIds = listJpycChains().map((c) => c.chainId)
+  }
+
+  const corsOrigins = parsed.CORS_ORIGINS.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  // Refuse to boot production with a wildcard CORS — too easy to leave the
+  // dev default in by accident and let any origin POST signed payloads.
+  // Operators who genuinely want a public open facilitator can set
+  // CORS_ORIGINS to an explicit list including their public domain.
+  if (parsed.NODE_ENV === "production" && corsOrigins.includes("*")) {
+    throw new Error(
+      "CORS_ORIGINS='*' is not allowed in production. " +
+        "Set CORS_ORIGINS to an explicit comma-separated list of resource server origins.",
+    )
   }
 
   return {
@@ -85,9 +102,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       criticalNative: parsed.RELAYER_BALANCE_CRITICAL_NATIVE,
     },
     cors: {
-      origins: parsed.CORS_ORIGINS.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      origins: corsOrigins,
     },
   }
 }
