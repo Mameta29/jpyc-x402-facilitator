@@ -141,19 +141,6 @@ export const JPYC_CHAINS: readonly JpycChain[] = [
     explorer: "https://kairos.kaiascan.io",
     publicRpc: "https://public-en-kairos.node.kaia.io",
   },
-  {
-    chainId: 5042002,
-    caip2: evmChainIdToCaip2(5042002),
-    name: "Arc Testnet",
-    shortName: "Arc",
-    isTestnet: true,
-    jpycAddress: JPYC_ADDRESS,
-    jpycDomainName: DOMAIN_NAME,
-    jpycDomainVersion: DOMAIN_VERSION,
-    nativeSymbol: "USDC",
-    explorer: "https://testnet.arcscan.app",
-    publicRpc: "https://rpc.testnet.arc.network",
-  },
 ] as const
 
 /** O(1) lookup index by chainId. */

@@ -26,7 +26,6 @@ export interface WorkerEnv {
   RPC_URLS_80002?: string
   RPC_URLS_43113?: string
   RPC_URLS_1001?: string
-  RPC_URLS_5042002?: string
 
   // ── Durable Object namespace ───────────────────────────────────────────
   RELAYER: DurableObjectNamespace

@@ -2,9 +2,9 @@
  * Map JPYC-supported chainIds to viem `Chain` definitions.
  *
  * For chains viem ships natively (Ethereum, Polygon, Avalanche, Sepolia,
- * Avalanche Fuji, Polygon Amoy) we import directly. For Kaia Kairos and
- * Arc testnet we synthesise minimal Chain shapes — viem only needs id /
- * name / native currency / rpcUrls / blockExplorers to function.
+ * Avalanche Fuji, Polygon Amoy) we import directly. For Kaia Kairos we
+ * synthesise a minimal Chain shape — viem only needs id / name / native
+ * currency / rpcUrls / blockExplorers to function.
  */
 
 import { defineChain, type Chain } from "viem"
@@ -27,15 +27,6 @@ const kairos = defineChain({
   testnet: true,
 })
 
-const arcTestnet = defineChain({
-  id: 5042002,
-  name: "Arc Testnet",
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 6 },
-  rpcUrls: { default: { http: ["https://rpc.testnet.arc.network"] } },
-  blockExplorers: { default: { name: "ArcScan", url: "https://testnet.arcscan.app" } },
-  testnet: true,
-})
-
 const REGISTRY: Record<number, Chain> = {
   [mainnet.id]: mainnet,
   [polygon.id]: polygon,
@@ -44,7 +35,6 @@ const REGISTRY: Record<number, Chain> = {
   [polygonAmoy.id]: polygonAmoy,
   [avalancheFuji.id]: avalancheFuji,
   [kairos.id]: kairos,
-  [arcTestnet.id]: arcTestnet,
 }
 
 export function resolveViemChain(chainId: number): Chain {

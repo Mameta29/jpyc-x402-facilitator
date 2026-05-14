@@ -169,7 +169,6 @@ and a relayer wallet per chain.
 | Polygon Amoy testnet | `eip155:80002` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Avalanche Fuji testnet | `eip155:43113` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Kaia Kairos testnet | `eip155:1001` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
-| Arc testnet | `eip155:5042002` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 
 Operators can disable individual networks per deployment via `ENABLED_NETWORKS`.
 

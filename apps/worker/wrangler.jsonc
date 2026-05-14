@@ -16,7 +16,7 @@
   },
   "vars": {
     "NODE_ENV": "staging",
-    "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001,eip155:5042002",
+    "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
     "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
   },
   "durable_objects": {
@@ -42,7 +42,7 @@
       ],
       "vars": {
         "NODE_ENV": "staging",
-        "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001,eip155:5042002",
+        "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
         "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
       },
       "durable_objects": {
