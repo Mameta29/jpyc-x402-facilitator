@@ -1,9 +1,17 @@
 /**
- * Production entry point for the JPYC x402 facilitator.
+ * Production entry point for the JPYC x402 facilitator (Node).
  *
- * Wires the env-derived config into the database, RPC clients, signer
- * provider, balance monitor, and rate limiter, then serves the Hono app
- * over `@hono/node-server`. Graceful shutdown drains in-flight requests.
+ * DB-free composition:
+ *   env config →
+ *     ExactEvmFacilitator (verify+settle on EVM) →
+ *     InProcessSettleRunner (per-chain mutex for nonce serialization) →
+ *     RateLimiter (in-memory) →
+ *     BalanceCache (in-memory, refreshed every 60 s) →
+ *     Hono app
+ *
+ * Designed for single-machine deployments — Fly.io max-machines-running=1,
+ * Render Starter, a self-hosted VPS. For multi-replica deployments use the
+ * Cloudflare Workers app (apps/worker) which serializes via Durable Objects.
  */
 
 import { serve } from "@hono/node-server"
@@ -14,19 +22,21 @@ import {
   envRpcResolver,
 } from "@jpyc-x402/evm"
 import {
-  BalanceMonitor,
+  BalanceCache,
+  InProcessSettleRunner,
+  NonceCache,
   RateLimiter,
   createApp,
-  createDatabase,
   loadConfig,
 } from "@jpyc-x402/facilitator"
 import { getJpycChain } from "@jpyc-x402/shared"
 
 async function main() {
   const config = loadConfig()
-  console.log(`[startup] env=${config.nodeEnv} chains=${config.enabledChainIds.join(",")}`)
+  console.info(
+    `[startup] env=${config.nodeEnv} chains=${config.enabledChainIds.join(",")}`,
+  )
 
-  const { db, pool } = createDatabase(config.databaseUrl)
   const rpcResolver = envRpcResolver()
   const signerProvider = envPrivateKeyRelayerProvider()
 
@@ -36,48 +46,50 @@ async function main() {
     signerProvider,
   })
 
-  const balanceMonitor = new BalanceMonitor(db, config.relayerBalance)
+  const settleRunner = new InProcessSettleRunner(facilitator)
+  const rateLimiter = new RateLimiter(config.rateLimit)
+  const nonceCache = new NonceCache(/* ttlSeconds */ 300)
+  const balanceCache = new BalanceCache(config.relayerBalance)
 
   // Refresh balance for every enabled chain at boot, then on a 60s interval.
-  // We catch errors per-chain so one dead RPC doesn't block startup.
+  // Per-chain failures are isolated; one dead RPC doesn't stop startup.
   const monitored = config.enabledChainIds.map((chainId) => ({
     chainId,
     publicClient: buildPublicClient(chainId, rpcResolver),
     account: signerProvider.forChain(chainId),
   }))
-  await balanceMonitor.refreshAll(monitored).catch((e) => {
+  await balanceCache.refreshAll(monitored).catch((e: unknown) => {
     console.error("[startup] balance refresh failed:", e)
   })
   const balanceTimer = setInterval(() => {
-    void balanceMonitor.refreshAll(monitored).catch((e) => {
+    void balanceCache.refreshAll(monitored).catch((e: unknown) => {
       console.error("[balance] refresh failed:", e)
     })
   }, 60_000)
   balanceTimer.unref()
 
-  const rateLimiter = new RateLimiter(db, config.rateLimit)
   const app = createApp({
     facilitator,
-    db,
+    settleRunner,
     rateLimiter,
-    balanceMonitor,
+    nonceCache,
+    balanceCache,
     cors: config.cors,
     nodeEnv: config.nodeEnv,
   })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.log(`[startup] listening on http://0.0.0.0:${info.port}`)
+    console.info(`[startup] listening on http://0.0.0.0:${info.port}`)
     for (const id of config.enabledChainIds) {
       const c = getJpycChain(id)
-      console.log(`  - ${c.shortName} (${id})  asset=${c.jpycAddress}`)
+      console.info(`  - ${c.shortName} (${id})  asset=${c.jpycAddress}`)
     }
   })
 
   const shutdown = async (signal: string) => {
-    console.log(`[shutdown] received ${signal}`)
+    console.info(`[shutdown] received ${signal}`)
     clearInterval(balanceTimer)
-    server.close(async () => {
-      await pool.end().catch(() => {})
+    server.close(() => {
       process.exit(0)
     })
     setTimeout(() => process.exit(1), 10_000).unref()
@@ -86,7 +98,7 @@ async function main() {
   process.on("SIGINT", () => void shutdown("SIGINT"))
 }
 
-void main().catch((e) => {
+void main().catch((e: unknown) => {
   console.error("[fatal]", e)
   process.exit(1)
 })
