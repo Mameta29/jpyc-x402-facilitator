@@ -25,7 +25,7 @@
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_classes": ["RelayerSignerDO"] }
+    { "tag": "v1", "new_sqlite_classes": ["RelayerSignerDO"] }
   ],
   "triggers": {
     "crons": ["*/1 * * * *"]
@@ -33,7 +33,7 @@
   "env": {
     "staging": {
       "name": "jpyc-x402-facilitator-staging",
-      "placement": { "region": "aws:ap-northeast-1" },
+      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
       "routes": [
         {
           "pattern": "facilitator-staging.jpyc-service.com/*",
@@ -44,11 +44,22 @@
         "NODE_ENV": "staging",
         "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001,eip155:5042002",
         "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "RELAYER", "class_name": "RelayerSignerDO" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["RelayerSignerDO"] }
+      ],
+      "triggers": {
+        "crons": ["*/1 * * * *"]
       }
     },
     "production": {
       "name": "jpyc-x402-facilitator-production",
-      "placement": { "region": "aws:ap-northeast-1" },
+      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
       "routes": [
         {
           "pattern": "facilitator.jpyc-service.com/*",
@@ -59,6 +70,17 @@
         "NODE_ENV": "production",
         "ENABLED_NETWORKS": "eip155:1,eip155:137,eip155:43114",
         "CORS_ORIGINS": "https://ec.jpyc-service.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "RELAYER", "class_name": "RelayerSignerDO" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["RelayerSignerDO"] }
+      ],
+      "triggers": {
+        "crons": ["*/1 * * * *"]
       }
     }
   }
