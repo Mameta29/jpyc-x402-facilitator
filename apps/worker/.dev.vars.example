@@ -1,0 +1,16 @@
+# Copy to `.dev.vars` for local `wrangler dev`. Production / staging secrets
+# go through `wrangler secret put --env <staging|production>` instead.
+
+# Relayer signing key (mainnet OR testnet depending on env). Use a wallet
+# funded with native gas on every chain you enabled in wrangler.jsonc.
+RELAYER_PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000
+
+# Per-chain RPC URLs (comma-separated for fallback).
+RPC_URLS_1=https://eth-mainnet.g.alchemy.com/v2/<KEY>
+RPC_URLS_137=https://polygon-mainnet.g.alchemy.com/v2/<KEY>
+RPC_URLS_43114=https://avax-mainnet.g.alchemy.com/v2/<KEY>
+RPC_URLS_11155111=https://eth-sepolia.g.alchemy.com/v2/<KEY>
+RPC_URLS_80002=https://polygon-amoy.g.alchemy.com/v2/<KEY>
+RPC_URLS_43113=https://avax-fuji.g.alchemy.com/v2/<KEY>
+RPC_URLS_1001=https://public-en-kairos.node.kaia.io
+RPC_URLS_5042002=https://rpc.testnet.arc.network

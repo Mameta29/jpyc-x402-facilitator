@@ -2,3 +2,8 @@ packages:
   - "packages/*"
   - "apps/*"
   - "e2e"
+
+# Allow Cloudflare/Vite native binaries to compile on install.
+onlyBuiltDependencies:
+  - workerd
+  - esbuild

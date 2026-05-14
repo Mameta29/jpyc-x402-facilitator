@@ -13,6 +13,10 @@ coverage/
 .next/
 .cache/
 .vercel/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 .changeset/*.md
 !.changeset/README.md
 !.changeset/config.json

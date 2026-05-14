@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "./dist",
+    "rootDir": ".",
+    "composite": false,
+    "noEmit": true
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/evm" },
+    { "path": "../../packages/facilitator" }
+  ],
+  "include": ["src/**/*", "test/**/*", "worker-configuration.d.ts"],
+  "exclude": ["node_modules", ".wrangler"]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "@jpyc-x402/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers + Durable Objects deployment of the JPYC x402 facilitator.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "echo 'wrangler handles build at deploy time'",
+    "clean": "rm -rf .wrangler .turbo",
+    "lint": "echo 'lint via prettier at root'",
+    "test": "vitest run",
+    "tail:staging": "wrangler tail --env staging",
+    "tail:production": "wrangler tail --env production"
+  },
+  "dependencies": {
+    "@jpyc-x402/evm": "workspace:*",
+    "@jpyc-x402/facilitator": "workspace:*",
+    "@jpyc-x402/shared": "workspace:*",
+    "hono": "^4.6.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.7.0",
+    "vitest": "2.0.5",
+    "wrangler": "^3.95.0"
+  }
+}
