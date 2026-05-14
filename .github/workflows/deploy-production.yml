@@ -1,0 +1,66 @@
+name: Deploy Worker (production)
+
+# Production deploys are manual only — trigger from the Actions tab.
+# A confirmation input prevents accidental clicks.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production rollout'
+        required: true
+        type: string
+      ref:
+        description: "Git ref to deploy (defaults to main)"
+        required: false
+        default: "main"
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Confirm input
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject if confirmation string mismatched
+        if: ${{ inputs.confirm != 'deploy' }}
+        run: |
+          echo "::error::confirm input must be exactly 'deploy' (got: '${{ inputs.confirm }}')"
+          exit 1
+
+  deploy:
+    name: wrangler deploy --env production
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://facilitator.jpyc-service.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @jpyc-x402/worker... build
+
+      - name: Deploy to Cloudflare (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/worker
+          command: deploy --env production
+          packageManager: pnpm
