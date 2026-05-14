@@ -1,17 +1,23 @@
 /**
- * Hono application exposing the x402 facilitator REST API.
+ * Hono app exposing the x402 facilitator REST surface.
  *
  * Routes:
  *   GET  /health     — liveness for the load balancer
- *   GET  /supported  — advertise scheme/network kinds we serve
+ *   GET  /supported  — advertise (scheme, network) kinds we serve
  *   POST /verify     — verify a PaymentPayload against PaymentRequirements
  *   POST /settle     — verify + broadcast transferWithAuthorization
  *
- * Each route returns JSON in the schemas defined by `@jpyc-x402/shared`.
- * Errors are mapped to (HTTP status, errorReason) pairs by `errorToResponse`.
+ * The DB-free refactor moved every persistent piece in-memory or out of
+ * scope:
+ *   - rate limiting → in-memory token bucket (RateLimiter)
+ *   - relayer balance health → in-memory cache (BalanceCache), refreshed by
+ *     the host on a timer (Node) or scheduled trigger (Workers)
+ *   - settle dedupe → in-memory short-TTL cache (NonceCache); the contract's
+ *     `_authorizationStates` mapping is the authoritative source of truth.
  *
- * The app is constructed via `createApp(deps)` so tests can swap in a fake
- * facilitator + in-memory rate limiter; production wiring lives in apps/server.
+ * Concurrency: nonce serialization is delegated to the SettleRunner the host
+ * provides. In Node we ship InProcessSettleRunner (per-chain mutex). In
+ * Workers the worker app injects a Durable Object-backed runner.
  */
 
 import { Hono, type Context } from "hono"
@@ -19,7 +25,7 @@ import { cors } from "hono/cors"
 import { logger as honoLogger } from "hono/logger"
 import {
   X402Error,
-  evmChainIdToCaip2,
+  caip2ToEvmChainId,
   settleRequestSchema,
   verifyRequestSchema,
   X402_VERSION,
@@ -29,17 +35,17 @@ import {
 } from "@jpyc-x402/shared"
 import type { ExactEvmFacilitator } from "@jpyc-x402/evm"
 import type { Address } from "viem"
-import { eq, and } from "drizzle-orm"
-import type { Database } from "./db/index.js"
-import { settlements } from "./db/index.js"
 import { RateLimiter } from "./rate-limit.js"
-import type { BalanceMonitor } from "./balance-monitor.js"
+import { BalanceCache } from "./balance-cache.js"
+import { NonceCache } from "./nonce-cache.js"
+import type { SettleRunner } from "./settle-runner.js"
 
 export interface AppDeps {
   facilitator: ExactEvmFacilitator
-  db: Database
+  settleRunner: SettleRunner
   rateLimiter: RateLimiter
-  balanceMonitor?: BalanceMonitor
+  nonceCache: NonceCache
+  balanceCache?: BalanceCache
   cors: { origins: string[] }
   /** Node env, used to gate verbose error responses. */
   nodeEnv: "development" | "staging" | "production" | "test"
@@ -84,7 +90,7 @@ export function createApp(deps: AppDeps) {
             invalidReason: shortReason(result.reason),
             ...(result.payer ? { payer: result.payer } : {}),
           }
-      return c.json(response, result.ok ? 200 : 200)
+      return c.json(response)
     } catch (e) {
       return errorToVerifyResponse(c, e, deps.nodeEnv)
     }
@@ -95,41 +101,33 @@ export function createApp(deps: AppDeps) {
       const json = await c.req.json()
       const parsed = settleRequestSchema.parse(json)
 
-      // Pre-rate-limit before doing any RPC work.
       const payer = parsed.paymentPayload.payload.authorization.from as Address
       const valueAtomic = BigInt(parsed.paymentPayload.payload.authorization.value)
-      await deps.rateLimiter.consume(payer, valueAtomic)
 
-      // Replay-protect ourselves: refuse to broadcast a (chainId, payer, nonce)
-      // we've already settled. Idempotency by row.
-      const chainIdGuess = chainIdFromCaip2(parsed.paymentRequirements.network)
+      // 1) Rate limit before any RPC work.
+      deps.rateLimiter.consume(payer, valueAtomic)
+
+      const chainId = caip2ToEvmChainId(parsed.paymentRequirements.network)
       const nonce = parsed.paymentPayload.payload.authorization.nonce
-      const existing = await deps.db
-        .select()
-        .from(settlements)
-        .where(
-          and(
-            eq(settlements.chainId, chainIdGuess),
-            eq(settlements.payer, payer.toLowerCase()),
-            eq(settlements.nonce, nonce),
-          ),
-        )
-        .limit(1)
-      const dup = existing[0]
-      if (dup && dup.status === "settled") {
+
+      // 2) Nonce cache — if we already settled this exact triple within the
+      //    cache window, return the cached tx hash without re-broadcasting.
+      //    Truth is on-chain (`_authorizationStates`); this just saves gas
+      //    and a round-trip when callers retry.
+      const cached = deps.nonceCache.get(chainId, payer, nonce)
+      if (cached?.settled && cached.txHash) {
         const body: SettlementResponse = {
           success: true,
           payer,
-          transaction: dup.txHash ?? "",
+          transaction: cached.txHash,
           network: parsed.paymentRequirements.network,
-          amount: dup.valueAtomic.toString(),
+          amount: valueAtomic.toString(),
         }
         return c.json(body)
       }
 
-      const refuseForBalance = deps.balanceMonitor
-        ? await deps.balanceMonitor.isCritical(chainIdGuess)
-        : false
+      // 3) Balance gate — refuse to settle when the relayer is critically low.
+      const refuseForBalance = deps.balanceCache?.isCritical(chainId) ?? false
       if (refuseForBalance) {
         const body: SettlementResponse = {
           success: false,
@@ -141,33 +139,15 @@ export function createApp(deps: AppDeps) {
         return c.json(body, 503)
       }
 
-      // Insert audit row up-front so we can correlate failure with a request.
-      const [audit] = await deps.db
-        .insert(settlements)
-        .values({
-          chainId: chainIdGuess,
-          asset: parsed.paymentRequirements.asset.toLowerCase(),
-          payer: payer.toLowerCase(),
-          payTo: parsed.paymentRequirements.payTo.toLowerCase(),
-          valueAtomic: valueAtomic.toString(),
-          nonce,
-          validAfter: BigInt(parsed.paymentPayload.payload.authorization.validAfter),
-          validBefore: BigInt(parsed.paymentPayload.payload.authorization.validBefore),
-          signature: parsed.paymentPayload.payload.signature,
-          status: "verified",
-        })
-        .returning()
-
-      const result = await deps.facilitator.settle(
+      // 4) Run the actual verify + settle through the host's SettleRunner.
+      //    This is where Node and Workers diverge: Node uses a per-chain
+      //    in-process mutex, Workers forwards to a Durable Object.
+      const result = await deps.settleRunner.settle(
         parsed.paymentPayload,
         parsed.paymentRequirements,
       )
 
       if (!result.verify.ok) {
-        await deps.db
-          .update(settlements)
-          .set({ status: "failed", errorReason: result.verify.reason })
-          .where(eq(settlements.id, audit!.id))
         const body: SettlementResponse = {
           success: false,
           errorReason: shortReason(result.verify.reason),
@@ -175,19 +155,12 @@ export function createApp(deps: AppDeps) {
           transaction: "",
           network: parsed.paymentRequirements.network,
         }
-        return c.json(body, 200)
+        return c.json(body)
       }
 
       const settle = result.settle!
       if (!settle.ok) {
-        await deps.db
-          .update(settlements)
-          .set({
-            status: "failed",
-            errorReason: settle.reason,
-            ...(settle.txHash ? { txHash: settle.txHash } : {}),
-          })
-          .where(eq(settlements.id, audit!.id))
+        // Don't cache failures — caller may retry after fixing balance/RPC.
         const body: SettlementResponse = {
           success: false,
           errorReason: shortReason(settle.reason),
@@ -195,21 +168,28 @@ export function createApp(deps: AppDeps) {
           transaction: settle.txHash ?? "",
           network: parsed.paymentRequirements.network,
         }
-        return c.json(body, 200)
+        return c.json(body)
       }
 
-      await deps.db
-        .update(settlements)
-        .set({
-          status: "settled",
+      // Cache the success — replays within TTL hit fast path above.
+      deps.nonceCache.remember(chainId, payer, nonce, {
+        settled: true,
+        txHash: settle.txHash,
+      })
+
+      // Structured success log so operators have an audit trail without DB.
+      console.info(
+        JSON.stringify({
+          ev: "settle.ok",
+          chainId,
+          payer,
+          payTo: parsed.paymentRequirements.payTo,
+          valueAtomic: valueAtomic.toString(),
+          nonce,
           txHash: settle.txHash,
-          blockNumber: settle.blockNumber,
-          gasUsed: settle.gasUsed.toString(),
-          effectiveGasPrice: settle.effectiveGasPrice.toString(),
           gasCostNative: settle.gasCostNative,
-          settledAt: new Date(),
-        })
-        .where(eq(settlements.id, audit!.id))
+        }),
+      )
 
       const body: SettlementResponse = {
         success: true,
@@ -224,7 +204,6 @@ export function createApp(deps: AppDeps) {
     }
   })
 
-  // Convenience meta-endpoint for callers that want server build info.
   app.get("/", (c) =>
     c.json({
       name: "jpyc-x402-facilitator",
@@ -236,14 +215,7 @@ export function createApp(deps: AppDeps) {
   return app
 }
 
-function chainIdFromCaip2(caip2: string): number {
-  const ref = caip2.split(":")[1]
-  if (!ref) throw new Error(`malformed CAIP-2: ${caip2}`)
-  return Number(ref)
-}
-
 function shortReason(reason: string): string {
-  // Surface only the spec error code if the message starts with one.
   const colon = reason.indexOf(":")
   if (colon > 0 && colon < 80) return reason.slice(0, colon)
   return reason
@@ -251,7 +223,6 @@ function shortReason(reason: string): string {
 
 type ContentfulStatus = 200 | 400 | 402 | 429 | 500 | 503
 function asStatus(n: number): ContentfulStatus {
-  // Map known facilitator statuses to the literal union Hono expects.
   if (n === 200 || n === 400 || n === 402 || n === 429 || n === 500 || n === 503) {
     return n
   }
@@ -288,5 +259,3 @@ function errorToSettleResponse(c: Context, e: unknown, nodeEnv: AppDeps["nodeEnv
   }
   return c.json(body, 400)
 }
-
-export { settlements as _settlementsTable }
