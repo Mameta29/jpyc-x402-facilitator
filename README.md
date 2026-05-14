@@ -49,29 +49,57 @@ This monorepo publishes the following npm packages under `@jpyc-x402/*`:
 | ------- | ------------ | ------------------ |
 | [`@jpyc-x402/shared`](./packages/shared) | Types, CAIP-2 helpers, JPYC chain registry, EIP-712 domain, base64url, zod schemas | Building anything x402-related |
 | [`@jpyc-x402/evm`](./packages/evm) | EIP-3009 verify / settle logic on EVM chains, multi-RPC fallback | Implementing a facilitator |
-| [`@jpyc-x402/facilitator`](./packages/facilitator) | Hono router exposing `/verify`, `/settle`, `/supported` | Hosting your own facilitator |
+| [`@jpyc-x402/facilitator`](./packages/facilitator) | Hono router exposing `/verify`, `/settle`, `/supported` (DB-free) | Hosting your own facilitator |
 | [`@jpyc-x402/client`](./packages/client) | Sign payloads, call any facilitator over HTTP, fetch wrapper | Resource server or paying client |
 | [`@jpyc-x402/mcp`](./packages/mcp) | MCP server wrapping facilitator endpoints | Debugging from an LLM agent |
 
+## Deployment apps
+
+Two ready-to-deploy apps sharing the same `@jpyc-x402/facilitator` core:
+
+| App | Best for | Lock-in |
+| --- | -------- | ------- |
+| [`apps/worker`](./apps/worker) | **Cloudflare Workers + Durable Objects** — edge global, $5/mo, nonce serialization via DO `blockConcurrencyWhile` | CF (one DO class file) |
+| [`apps/server`](./apps/server) | **Node + Hono** for Render / Fly / VPS — single-replica, in-process per-chain mutex | None (plain Docker) |
+
+Both deploy DB-free. Pick one per environment; you can switch back and
+forth with no code change in the resource server (only `FACILITATOR_URL`
+moves).
+
 ## Hosted facilitator
 
-A reference deployment is operated by the maintainers. See [`apps/server`](./apps/server)
-for the deployable image and [`docs/hosting.md`](./docs/hosting.md) for the public URL,
-free tier, and SLA. You can swap to your own facilitator at any time by passing a
-different base URL — there is no lock-in.
+A reference deployment is operated by the maintainers:
+
+```
+production : facilitator.jpyc-service.com         (mainnets)
+staging    : facilitator-staging.jpyc-service.com (testnets)
+```
+
+See [`docs/hosting.md`](./docs/hosting.md) for the operator checklist,
+free tier, and SLA. You can swap to your own facilitator at any time by
+passing a different `FACILITATOR_URL` — there is no lock-in.
 
 ## Quick start
 
-### Run the facilitator locally
+### Run the Node facilitator locally
 
 ```bash
-cp .env.example .env
-docker compose -f apps/server/compose.yml up -d   # Postgres
+cp .env.example .env   # fill RELAYER_PRIVATE_KEY + RPC_URLS_*
 pnpm install
-pnpm --filter apps/server dev
+pnpm --filter @jpyc-x402/server dev
 # → POST http://localhost:8402/verify
 # → POST http://localhost:8402/settle
 # → GET  http://localhost:8402/supported
+```
+
+### Run the Cloudflare Worker locally
+
+```bash
+cd apps/worker
+cp .dev.vars.example .dev.vars   # local-only secrets
+pnpm install
+pnpm wrangler dev
+# → http://127.0.0.1:8787
 ```
 
 ### Pay through the facilitator from a TypeScript client
@@ -88,7 +116,7 @@ const wallet = createWalletClient({ account, chain: polygon, transport: http() }
 const res = await fetchWithPayment(
   "https://shop.example.com/api/v1/products/abc/checkout",
   { method: "POST", body: JSON.stringify({ quantity: 1 }) },
-  { wallet, facilitatorUrl: "https://facilitator.jpyc-x402.com" },
+  { wallet, facilitatorUrl: "https://facilitator.jpyc-service.com" },
 )
 console.log(await res.json())
 ```

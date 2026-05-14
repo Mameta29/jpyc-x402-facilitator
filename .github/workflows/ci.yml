@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   test:
-    name: Lint, typecheck, test
+    name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -33,32 +33,3 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
-
-  integration:
-    name: Integration tests (Postgres)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: jpyc
-          POSTGRES_PASSWORD: jpyc
-          POSTGRES_DB: jpyc_x402_facilitator_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 10.7.1 }
-      - uses: actions/setup-node@v4
-        with: { node-version: "22", cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter "@jpyc-x402/facilitator" test:integration
-        env:
-          DATABASE_URL: postgres://jpyc:jpyc@localhost:5432/jpyc_x402_facilitator_test

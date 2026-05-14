@@ -12,8 +12,10 @@ info:
   license:
     name: MIT
 servers:
-  - url: https://facilitator.jpyc-x402.com
-    description: Reference hosted deployment
+  - url: https://facilitator.jpyc-service.com
+    description: Reference hosted deployment (production, mainnets)
+  - url: https://facilitator-staging.jpyc-service.com
+    description: Reference hosted deployment (staging, testnets)
   - url: http://localhost:8402
     description: Local dev
 paths:

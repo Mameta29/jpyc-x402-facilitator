@@ -13,10 +13,13 @@ explicitly defend against and the ones we accept.
   facilitator does not result in funds moving.
 
 ### Replay attacks
-- Pre-broadcast: `(chainId, payer, nonce)` UNIQUE in `settlements` rejects
-  duplicate broadcasts.
-- On-chain: EIP-3009 marks the nonce as used in `_authorizationStates`; a
-  second broadcast reverts.
+- **Authoritative**: EIP-3009 marks the nonce as used in
+  `_authorizationStates` on the token contract; a second broadcast reverts
+  with no fund movement.
+- **Optimisation**: an in-memory `NonceCache` (5-min TTL) short-circuits
+  retries within the cache window without touching RPC. The cache is
+  best-effort — losing it (process restart, isolate eviction) costs at
+  most one revert worth of gas, never correctness.
 
 ### Front-running
 - A malicious node that sees a pending tx can't change it; the authorization
@@ -26,7 +29,7 @@ explicitly defend against and the ones we accept.
 
 ### Resource exhaustion
 - Per-payer rate limit (request count + JPYC value cap) enforced via
-  Postgres-backed buckets.
+  in-memory rolling-window buckets per process.
 - Per-chain RPC fallback prevents one bad endpoint from saturating the
   request queue.
 - Relayer wallets refuse to settle when below critical native balance.

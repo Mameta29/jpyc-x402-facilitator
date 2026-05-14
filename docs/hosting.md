@@ -1,77 +1,154 @@
 # Hosting your own facilitator
 
-A facilitator is a stateless HTTP service plus a Postgres database. You can run
-it anywhere that supports Node 20+ and outbound connections to your chosen
-EVM RPC endpoints.
+The facilitator is a stateless HTTP service. **No database is required.**
+We ship two deployment apps that both consume the same
+`@jpyc-x402/facilitator` core, so feature parity is automatic.
+
+| App | Best for | Latency to Tokyo | Cost (low traffic) |
+| --- | -------- | ---------------- | ------------------ |
+| [`apps/worker`](../apps/worker) | Cloudflare-native, edge global | 5-30 ms (NRT) | **$5/mo Workers Paid** (or Free for staging) |
+| [`apps/server`](../apps/server) | Self-host on Render / Fly / VPS | 20-80 ms (NRT/SIN) | $3-7/mo (Fly shared-cpu-1x) |
+
+**Recommended**: run the Worker for production. Keep `apps/server` as the
+fallback for emergencies and as a portable deployment for anyone forking
+this repo who can't (or doesn't want to) use Cloudflare.
+
+---
 
 ## Reference deployment
 
+The maintainers operate a hosted facilitator at:
+
 ```
-facilitator.jpyc-x402.com         (production, mainnets only)
-facilitator.staging.jpyc-x402.com (testnets only)
+facilitator.jpyc-service.com         (production, mainnets only)
+facilitator-staging.jpyc-service.com (testnets only)
 ```
 
-The hosted deployment is operated by the maintainers. Free tier is 1,000 settles
-per calendar month per origin; above that, contact us for a paid plan. There
-is no lock-in — switching to your own deployment is one env var.
+You can swap to your own deployment at any time by setting
+`FACILITATOR_URL` on the resource server side — there is no lock-in.
+
+---
 
 ## Required infra
 
-| Piece | Sizing for ~50 RPS | Notes |
-| ----- | ------------------ | ----- |
-| Compute | 0.5 vCPU / 512 MB RAM per replica | Hono is async; CPU-bound only on signature recovery |
-| Postgres | shared instance | nonce dedupe + rate limit; <100 MB even for high traffic |
-| RPC per chain | 1 private + 1 backup endpoint | public RPCs throttle; we use viem `fallback` |
-| Relayer wallet | reuse the EC platform's existing `EXECUTOR_PRIVATE_KEY` | already funded on every supported chain; one wallet for both EC's おまかせプラン and x402 settle. Top-up is the same operational task. |
+Whichever app you pick, you need:
 
-## Bootstrapping
+1. **One private RPC URL per enabled chain**. Public RPCs throttle hard at
+   any meaningful traffic. The runtime configures viem's `fallback`
+   transport with comma-separated lists, so put a primary + backup per
+   chain.
+
+2. **A funded relayer wallet** (`RELAYER_PRIVATE_KEY`). The wallet only
+   spends gas to broadcast `transferWithAuthorization` — it never holds
+   user funds. ~0.1 native token per chain is enough for months of typical
+   traffic.
+
+   For operators of `jpyc-ec-platform`, you can reuse the existing
+   `EXECUTOR_PRIVATE_KEY` here. EIP-3009 nonces are scoped per-(token, payer)
+   so the おまかせプラン executor and the x402 facilitator never conflict
+   at the contract level, even when sharing one wallet.
+
+3. **Secret management**. Never commit `RELAYER_PRIVATE_KEY` to git or bake
+   it into a container image. Use the platform's secret store (Workers
+   Secrets, Render Secrets, Fly Secrets, AWS/GCP Secret Manager).
+
+You **do not need**: a database, a cache, a queue, a session store. The
+facilitator is intentionally stateless — replay protection is enforced
+on-chain by EIP-3009's `_authorizationStates` mapping.
+
+---
+
+## Cloudflare Workers (recommended)
+
+```bash
+git clone https://github.com/Mameta29/jpyc-x402-facilitator.git
+cd jpyc-x402-facilitator/apps/worker
+
+cp .dev.vars.example .dev.vars   # local-only secrets for `wrangler dev`
+pnpm install
+pnpm wrangler dev                # → http://127.0.0.1:8787
+```
+
+For production:
+
+```bash
+cd apps/worker
+
+# 1. Push secrets per environment (interactive prompts)
+pnpm wrangler secret put RELAYER_PRIVATE_KEY --env staging
+pnpm wrangler secret put RELAYER_PRIVATE_KEY --env production
+
+pnpm wrangler secret put RPC_URLS_137 --env production
+pnpm wrangler secret put RPC_URLS_1 --env production
+# ...etc
+
+# 2. Deploy
+pnpm deploy:staging
+pnpm deploy:production
+```
+
+The default `wrangler.jsonc` already configures:
+
+- **Placement Hints** `aws:ap-northeast-1` (Tokyo) for both envs
+- **Routes** `facilitator.jpyc-service.com` (prod) and
+  `facilitator-staging.jpyc-service.com` (stg)
+- **Durable Object binding** `RELAYER` for nonce serialization
+- **Cron** `*/1 * * * *` to refresh the in-memory balance cache
+
+See [`apps/worker/README.md`](../apps/worker/README.md) for details.
+
+---
+
+## Self-hosted Node + Hono
 
 ```bash
 git clone https://github.com/Mameta29/jpyc-x402-facilitator.git
 cd jpyc-x402-facilitator
-cp .env.example .env  # fill in DATABASE_URL, RELAYER_PRIVATE_KEY, RPC_URLS_*
-docker compose -f apps/server/compose.yml up -d  # local dev only
+cp .env.example .env
 pnpm install
-pnpm --filter @jpyc-x402/facilitator db:generate
-pnpm --filter @jpyc-x402/facilitator db:migrate
-pnpm --filter @jpyc-x402/server start
+pnpm --filter @jpyc-x402/server dev
+# → http://localhost:8402
 ```
 
-## Deploying with Docker
+For production deploys see:
 
-```bash
-docker build -t jpyc-x402-facilitator -f apps/server/Dockerfile .
-docker run -p 8402:8402 --env-file .env jpyc-x402-facilitator
-```
+- Render: [`apps/server/README.md#deploying-to-render`](../apps/server/README.md)
+- Fly.io: [`apps/server/README.md#deploying-to-flyio`](../apps/server/README.md)
 
-Public images are published to `ghcr.io/mameta29/jpyc-x402-facilitator` on each
-release. Pin to a release tag in production; the `latest` tag is for dev.
+**Pin a single replica** (`numInstances: 1` on Render, `max-machines = 1`
+on Fly). The Node app uses an in-process per-chain mutex for nonce
+serialization; multiple replicas would race.
 
-## Choosing chains
+---
 
-By default the facilitator advertises every chain in the JPYC registry filtered
-by `NODE_ENV` (production = mainnets, staging = testnets, otherwise all). Set
-`ENABLED_NETWORKS` to a comma-separated CAIP-2 list to override:
+## Sizing guidance
 
-```env
-ENABLED_NETWORKS=eip155:137,eip155:1
-```
+For ~50 req/s of mixed verify+settle traffic:
 
-## Multi-region hosting
+- **Workers**: well within the included quotas of Workers Paid ($5/mo).
+  CPU per request is sub-15 ms; the 30M CPU-ms/month allowance covers
+  ~2M settles/month.
+- **Node (Fly shared-cpu-1x 512MB)**: handles the same workload at
+  ~30 % CPU utilisation. RAM usage is dominated by viem's RPC client
+  caches, well under 200 MB.
 
-The facilitator is stateless beyond Postgres; replicas can run in any region
-that has acceptable RPC latency. Use Postgres logical replication or a
-multi-AZ managed instance for the rate-limit / nonce tables. The `settlements`
-unique constraint on `(chain_id, payer, nonce)` prevents two replicas from
-ever broadcasting the same authorization.
+Postgres-style scaling concerns (connection pools, slow queries) do not
+apply because there is no Postgres.
 
-## Secrets
+---
 
-Never commit `RELAYER_PRIVATE_KEY` to a git repo or container image. Use:
+## Operator checklist
 
-- Render/Fly secret store for managed PaaS
-- AWS Secrets Manager / GCP Secret Manager for cloud
-- HashiCorp Vault for self-hosted
+Before going live:
 
-The signer abstraction in `@jpyc-x402/evm` (`RelayerSignerProvider`) is the
-single seam to swap in a KMS-backed signer.
+- [ ] Relayer wallet funded with native gas on every enabled chain
+- [ ] Private RPC URLs configured per chain (not relying on public RPCs)
+- [ ] `RELAYER_PRIVATE_KEY` stored in your secret manager, not env files in
+      git or images
+- [ ] CORS_ORIGINS narrowed to your resource server domain
+- [ ] Logs streaming to a destination you can grep (Workers Logs, Logpush,
+      Render Logs, Fly Logs)
+- [ ] Health check endpoint (`GET /health`) wired into your platform's
+      load balancer
+- [ ] `GET /supported` returns the list of (scheme, network) kinds you
+      expect
