@@ -1,8 +1,16 @@
 /**
- * Facilitator configuration loaded from environment variables.
+ * Facilitator configuration.
  *
- * One module owns env reading; everything else takes a typed config value.
- * Tests construct a config directly so they can run without env mutation.
+ * The DB-free refactor reduced the surface to:
+ *
+ *   - HTTP server (port, log level, env, CORS)
+ *   - Which networks to advertise
+ *   - In-memory rate limit window + caps
+ *   - Relayer balance thresholds
+ *
+ * No DATABASE_URL, no OTEL collector, no Postgres pooling. Operators wire
+ * structured stdout into their log aggregator of choice (Workers Logs,
+ * Logpush, Axiom, Better Stack, etc.) — facilitator does not own that path.
  */
 
 import { z } from "zod"
@@ -12,7 +20,6 @@ export interface FacilitatorConfig {
   port: number
   nodeEnv: "development" | "staging" | "production" | "test"
   logLevel: "trace" | "debug" | "info" | "warn" | "error"
-  databaseUrl: string
   enabledChainIds: number[]
   rateLimit: {
     windowSeconds: number
@@ -29,17 +36,12 @@ export interface FacilitatorConfig {
   cors: {
     origins: string[]
   }
-  otel: {
-    endpoint?: string
-    serviceName: string
-  }
 }
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8402),
   NODE_ENV: z.enum(["development", "staging", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
-  DATABASE_URL: z.string().url().or(z.string().startsWith("postgres://")).or(z.string().startsWith("postgresql://")),
   ENABLED_NETWORKS: z.string().optional(),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
@@ -47,11 +49,9 @@ const envSchema = z.object({
   RELAYER_BALANCE_LOW_NATIVE: z.coerce.number().nonnegative().default(0.05),
   RELAYER_BALANCE_CRITICAL_NATIVE: z.coerce.number().nonnegative().default(0.005),
   CORS_ORIGINS: z.string().default("*"),
-  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
-  OTEL_SERVICE_NAME: z.string().default("jpyc-x402-facilitator"),
 })
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorConfig {
+export function loadConfig(env: Record<string, string | undefined> = process.env): FacilitatorConfig {
   const parsed = envSchema.parse(env)
 
   let enabledChainIds: number[]
@@ -72,7 +72,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorCon
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
     logLevel: parsed.LOG_LEVEL,
-    databaseUrl: parsed.DATABASE_URL,
     enabledChainIds,
     rateLimit: {
       windowSeconds: parsed.RATE_LIMIT_WINDOW_SECONDS,
@@ -89,10 +88,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorCon
       origins: parsed.CORS_ORIGINS.split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-    },
-    otel: {
-      endpoint: parsed.OTEL_EXPORTER_OTLP_ENDPOINT,
-      serviceName: parsed.OTEL_SERVICE_NAME,
     },
   }
 }
