@@ -20,7 +20,12 @@ import {
   type PaymentPayload,
   type PaymentRequirements,
 } from "@jpyc-x402/shared"
-import { checkRequirementsMatch, splitSignatureComponents, verifyExactPayment } from "./verify.js"
+import {
+  checkRequirementsMatch,
+  rejectHighS,
+  splitSignatureComponents,
+  verifyExactPayment,
+} from "./verify.js"
 
 const CHAIN_ID = 80002 // Polygon Amoy
 const PAYTO = "0x209693Bc6afc0C5328bA36FaF03C514EF312287C" as const
@@ -130,13 +135,90 @@ describe("checkRequirementsMatch", () => {
   })
 })
 
+/**
+ * Build the malleable variant (r, n-s, v ^ 1) of a 65-byte ECDSA signature.
+ * Both signatures recover to the same address but have different bytes — used
+ * to confirm that high-s rejection blocks the bypass.
+ */
+function malleate(sig: Hex): Hex {
+  const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
+  const { r, s, v } = splitSignatureComponents(sig)
+  const flipped = (N - BigInt(s)).toString(16).padStart(64, "0")
+  const flippedV = (v ^ 1).toString(16).padStart(2, "0")
+  return `0x${r.slice(2)}${flipped}${flippedV}` as Hex
+}
+
+describe("rejectHighS", () => {
+  it("accepts canonical (low-s) signatures", async () => {
+    const sk = generatePrivateKey()
+    const account = privateKeyToAccount(sk)
+    const sig = (await account.signTypedData({
+      domain: buildJpycEip712Domain(CHAIN_ID),
+      types: TRANSFER_WITH_AUTHORIZATION_TYPES,
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: account.address,
+        to: PAYTO,
+        value: VALUE,
+        validAfter: VALID_AFTER,
+        validBefore: VALID_BEFORE,
+        nonce: NONCE,
+      },
+    })) as Hex
+    expect(() => rejectHighS(sig)).not.toThrow()
+  })
+
+  it("rejects the malleable (high-s) variant of a canonical signature", async () => {
+    const sk = generatePrivateKey()
+    const account = privateKeyToAccount(sk)
+    const sig = (await account.signTypedData({
+      domain: buildJpycEip712Domain(CHAIN_ID),
+      types: TRANSFER_WITH_AUTHORIZATION_TYPES,
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from: account.address,
+        to: PAYTO,
+        value: VALUE,
+        validAfter: VALID_AFTER,
+        validBefore: VALID_BEFORE,
+        nonce: NONCE,
+      },
+    })) as Hex
+    const variant = malleate(sig)
+    expect(variant).not.toBe(sig)
+    expect(() => rejectHighS(variant)).toThrow(/high-s/)
+  })
+})
+
+describe("verifyExactPayment + malleability", () => {
+  it("rejects the malleable variant of an otherwise-valid signature", async () => {
+    const sk = generatePrivateKey()
+    const { payload, required } = await buildSignedPayload(sk)
+    const account = privateKeyToAccount(sk)
+    const variant = malleate(payload.payload.signature as Hex)
+    const tampered: PaymentPayload = {
+      ...payload,
+      payload: { ...payload.payload, signature: variant },
+    }
+    const publicClient = mockPublicClient({ balance: VALUE * 5n })
+    const res = await verifyExactPayment(tampered, required, {
+      publicClient,
+      relayerAccount: account,
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.reason).toMatch(/invalid_exact_evm_payload_signature/)
+      expect(res.reason).toMatch(/high-s/)
+    }
+  })
+})
+
 describe("splitSignatureComponents", () => {
   it("splits a 65-byte signature into v/r/s", () => {
-    const sig =
-      ("0x" +
-        "1".repeat(64) + // r
-        "2".repeat(64) + // s
-        "1c") as Hex // v=28
+    const sig = ("0x" +
+      "1".repeat(64) + // r
+      "2".repeat(64) + // s
+      "1c") as Hex // v=28
     const parts = splitSignatureComponents(sig)
     expect(parts.r).toHaveLength(66)
     expect(parts.s).toHaveLength(66)

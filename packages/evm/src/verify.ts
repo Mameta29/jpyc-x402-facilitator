@@ -130,6 +130,24 @@ export async function verifyExactPayment(
   }
 
   // 1) signature recovery
+  //
+  // Reject signatures with high-s before recovery (EIP-2 / SEC1 §4.1.4).
+  // viem's recoverAddress accepts both s and n-s as valid recoveries, but the
+  // JPYC contract (FiatTokenV2 / OpenZeppelin ECDSA) rejects high-s. Today the
+  // contract simulate step catches it; we reject here too so:
+  //   (a) any future optimisation that skips simulate stays safe, and
+  //   (b) an attacker cannot craft a malleable variant (r, n-s, v^1) that
+  //       passes verify with a different-looking signature blob and bypasses
+  //       the in-memory NonceCache (which keys on `nonce`, not on the sig).
+  try {
+    rejectHighS(sig as Hex)
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `${X402_ERROR_CODES.invalid_exact_evm_payload_signature}: ${(e as Error).message}`,
+    }
+  }
+
   const domain = buildJpycEip712Domain(chain)
   const digest = hashTypedData({
     domain,
@@ -210,7 +228,14 @@ export async function verifyExactPayment(
     }
   } catch (e) {
     // Don't hard-fail verification just because the read failed — settlement
-    // simulation below will catch a true conflict. Log via caller.
+    // simulation below will catch a true conflict. We do log it though, so
+    // that a flaky RPC erasing our pre-broadcast replay check doesn't go
+    // silently unnoticed in production.
+    console.warn(
+      `[verify] authorizationState read failed for chainId=${chainId} ` +
+        `payer=${a.from} nonce=${a.nonce} — falling through to simulate. ` +
+        `cause: ${e instanceof Error ? e.message : String(e)}`,
+    )
   }
 
   // 2) balance check
@@ -284,8 +309,28 @@ export function splitSignatureComponents(sig: Hex): { v: number; r: Hex; s: Hex 
   if (!/^0x[a-fA-F0-9]{130}$/.test(sig)) {
     throw new Error(`bad signature length: ${sig.length}`)
   }
-  const r = (`0x${sig.slice(2, 66)}`) as Hex
-  const s = (`0x${sig.slice(66, 130)}`) as Hex
+  const r = `0x${sig.slice(2, 66)}` as Hex
+  const s = `0x${sig.slice(66, 130)}` as Hex
   const v = parseInt(sig.slice(130, 132), 16)
   return { v, r, s }
+}
+
+/**
+ * secp256k1 group order n divided by 2. Per EIP-2, only signatures with
+ * s ≤ n/2 are considered canonical; the JPYC contract rejects the upper half.
+ */
+const SECP256K1_N_HALF = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n
+
+/**
+ * Throw if the signature's s component lies in the upper half of the secp256k1
+ * group order. Together with on-chain enforcement this gives defence in depth
+ * against signature malleability — see verify.ts inline comment for the full
+ * rationale.
+ */
+export function rejectHighS(sig: Hex): void {
+  const { s } = splitSignatureComponents(sig)
+  const sBig = BigInt(s)
+  if (sBig > SECP256K1_N_HALF) {
+    throw new Error("non-canonical signature (high-s)")
+  }
 }
