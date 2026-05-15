@@ -22,6 +22,7 @@ export interface WorkerEnv {
   RPC_URLS_1?: string
   RPC_URLS_137?: string
   RPC_URLS_43114?: string
+  RPC_URLS_8217?: string
   RPC_URLS_11155111?: string
   RPC_URLS_80002?: string
   RPC_URLS_43113?: string

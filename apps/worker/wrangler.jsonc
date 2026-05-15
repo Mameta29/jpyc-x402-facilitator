@@ -68,7 +68,7 @@
       ],
       "vars": {
         "NODE_ENV": "production",
-        "ENABLED_NETWORKS": "eip155:1,eip155:137,eip155:43114",
+        "ENABLED_NETWORKS": "eip155:1,eip155:137,eip155:43114,eip155:8217",
         "CORS_ORIGINS": "https://ec.jpyc-service.com"
       },
       "durable_objects": {

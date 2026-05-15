@@ -1,40 +1,34 @@
 /**
  * Map JPYC-supported chainIds to viem `Chain` definitions.
  *
- * For chains viem ships natively (Ethereum, Polygon, Avalanche, Sepolia,
- * Avalanche Fuji, Polygon Amoy) we import directly. For Kaia Kairos we
- * synthesise a minimal Chain shape — viem only needs id / name / native
- * currency / rpcUrls / blockExplorers to function.
+ * All current chains are shipped by viem natively. viem still calls Kaia
+ * Kairos by its old "klaytnBaobab" alias (chainId 1001) — both are the same
+ * network.
  */
 
-import { defineChain, type Chain } from "viem"
+import { type Chain } from "viem"
 import {
   avalanche,
   avalancheFuji,
+  kaia,
+  klaytnBaobab,
   mainnet,
   polygon,
   polygonAmoy,
   sepolia,
 } from "viem/chains"
+import { defineChain } from "viem"
 import { getJpycChain } from "@jpyc-x402/shared"
-
-const kairos = defineChain({
-  id: 1001,
-  name: "Kaia Kairos Testnet",
-  nativeCurrency: { name: "KAIA", symbol: "KAIA", decimals: 18 },
-  rpcUrls: { default: { http: ["https://public-en-kairos.node.kaia.io"] } },
-  blockExplorers: { default: { name: "KaiaScan", url: "https://kairos.kaiascan.io" } },
-  testnet: true,
-})
 
 const REGISTRY: Record<number, Chain> = {
   [mainnet.id]: mainnet,
   [polygon.id]: polygon,
   [avalanche.id]: avalanche,
+  [kaia.id]: kaia,
   [sepolia.id]: sepolia,
   [polygonAmoy.id]: polygonAmoy,
   [avalancheFuji.id]: avalancheFuji,
-  [kairos.id]: kairos,
+  [klaytnBaobab.id]: klaytnBaobab,
 }
 
 export function resolveViemChain(chainId: number): Chain {

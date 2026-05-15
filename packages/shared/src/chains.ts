@@ -88,6 +88,19 @@ export const JPYC_CHAINS: readonly JpycChain[] = [
     explorer: "https://snowtrace.io",
     publicRpc: "https://api.avax.network/ext/bc/C/rpc",
   },
+  {
+    chainId: 8217,
+    caip2: evmChainIdToCaip2(8217),
+    name: "Kaia Mainnet",
+    shortName: "Kaia",
+    isTestnet: false,
+    jpycAddress: JPYC_ADDRESS,
+    jpycDomainName: DOMAIN_NAME,
+    jpycDomainVersion: DOMAIN_VERSION,
+    nativeSymbol: "KAIA",
+    explorer: "https://kaiascan.io",
+    publicRpc: "https://public-en.node.kaia.io",
+  },
   // Testnets
   {
     chainId: 11155111,

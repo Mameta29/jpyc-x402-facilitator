@@ -165,6 +165,7 @@ and a relayer wallet per chain.
 | Ethereum mainnet | `eip155:1` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Polygon mainnet | `eip155:137` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Avalanche mainnet | `eip155:43114` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
+| Kaia mainnet | `eip155:8217` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Sepolia (Ethereum testnet) | `eip155:11155111` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Polygon Amoy testnet | `eip155:80002` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |
 | Avalanche Fuji testnet | `eip155:43113` | `0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29` | `JPY Coin` / `1` |

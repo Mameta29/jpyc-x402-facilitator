@@ -9,7 +9,7 @@ import {
 
 describe("JPYC chain registry", () => {
   it("registers exactly the chains the EC platform uses today", () => {
-    const expected = [1, 137, 43114, 11155111, 80002, 43113, 1001].sort()
+    const expected = [1, 137, 43114, 8217, 11155111, 80002, 43113, 1001].sort()
     const actual = JPYC_CHAINS.map((c) => c.chainId).sort()
     expect(actual).toEqual(expected)
   })
