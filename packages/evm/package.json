@@ -1,5 +1,6 @@
 {
   "name": "@jpyc-x402/evm",
+  "private": true,
   "version": "0.1.0",
   "description": "x402 'exact' scheme verify/settle logic on EVM chains for JPYC (EIP-3009).",
   "license": "MIT",

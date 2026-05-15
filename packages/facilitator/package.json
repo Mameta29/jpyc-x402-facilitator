@@ -1,5 +1,6 @@
 {
   "name": "@jpyc-x402/facilitator",
+  "private": true,
   "version": "0.1.0",
   "description": "Hono router exposing /verify, /settle, /supported for the x402 'exact' scheme on JPYC. DB-free; Node and Cloudflare Workers compatible.",
   "license": "MIT",

@@ -1,5 +1,6 @@
 {
   "name": "@jpyc-x402/shared",
+  "private": true,
   "version": "0.1.0",
   "description": "Shared types, CAIP-2 helpers, JPYC chain registry, EIP-712 domain, and zod schemas for x402 on JPYC.",
   "license": "MIT",

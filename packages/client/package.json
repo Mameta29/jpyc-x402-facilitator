@@ -1,5 +1,6 @@
 {
   "name": "@jpyc-x402/client",
+  "private": true,
   "version": "0.1.0",
   "description": "TypeScript client SDK for x402 on JPYC. Sign EIP-3009 authorizations and call any facilitator over HTTP.",
   "license": "MIT",

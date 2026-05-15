@@ -1,5 +1,6 @@
 {
   "name": "@jpyc-x402/mcp",
+  "private": true,
   "version": "0.1.0",
   "description": "MCP server exposing facilitator tools (verify, settle, supported, create_and_settle) to LLM agents.",
   "license": "MIT",
