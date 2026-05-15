@@ -149,13 +149,34 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         })
         return { ok: true, txHash }
       } catch (e) {
+        // Always log the full exception — the wire `errorReason` is a coarse
+        // code (and gets truncated at the first colon by the HTTP layer), so
+        // this structured line is the only place the real cause survives.
+        const err = e as Record<string, unknown> & Error
+        console.error(
+          JSON.stringify({
+            ev: "broadcast.error",
+            chainId: input.chainId,
+            payer: input.payer,
+            nonce: input.nonce,
+            name: err?.name,
+            message: err?.message,
+            shortMessage: (err as { shortMessage?: string })?.shortMessage,
+            metaMessages: (err as { metaMessages?: unknown })?.metaMessages,
+            cause:
+              err?.cause instanceof Error
+                ? { name: err.cause.name, message: err.cause.message }
+                : err?.cause,
+            stack: err?.stack,
+          }),
+        )
         // viem's writeContract simulates before sending, so a revert (e.g.
         // an authorization that expired in the gap between verify and this
         // broadcast) surfaces here. Map known EIP-3009 revert strings to a
         // wire error code; fall back to the raw message otherwise.
         const code = parseEip3009RevertReason(e)
         if (code) return { ok: false, reason: code }
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = err?.message ?? String(e)
         return { ok: false, reason: `${X402_ERROR_CODES.unexpected_settle_error}: ${msg}` }
       }
     })
