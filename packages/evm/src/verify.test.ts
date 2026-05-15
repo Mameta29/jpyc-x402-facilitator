@@ -21,7 +21,9 @@ import {
   type PaymentRequirements,
 } from "@jpyc-x402/shared"
 import {
+  BLOCK_TIME_GRACE_SECONDS,
   checkRequirementsMatch,
+  checkTimeWindow,
   rejectHighS,
   splitSignatureComponents,
   verifyExactPayment,
@@ -227,6 +229,40 @@ describe("splitSignatureComponents", () => {
 
   it("throws on malformed signatures", () => {
     expect(() => splitSignatureComponents("0xdeadbeef" as Hex)).toThrow()
+  })
+})
+
+describe("checkTimeWindow", () => {
+  const AFTER = 1_000n
+  const BEFORE = 2_000n
+
+  it("returns null when now is comfortably inside the window", () => {
+    expect(checkTimeWindow(AFTER, BEFORE, 1_500n)).toBeNull()
+  })
+
+  it("rejects when now is before validAfter", () => {
+    expect(checkTimeWindow(AFTER, BEFORE, AFTER - 1n)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_after",
+    )
+  })
+
+  it("rejects when now is at or past validBefore", () => {
+    expect(checkTimeWindow(AFTER, BEFORE, BEFORE)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+    expect(checkTimeWindow(AFTER, BEFORE, BEFORE + 100n)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+  })
+
+  it("rejects within the block-time grace before validBefore", () => {
+    // Still strictly before validBefore, but inside the grace → rejected.
+    const justInsideGrace = BEFORE - BLOCK_TIME_GRACE_SECONDS
+    expect(checkTimeWindow(AFTER, BEFORE, justInsideGrace)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+    // One second earlier than the grace boundary → still accepted.
+    expect(checkTimeWindow(AFTER, BEFORE, justInsideGrace - 1n)).toBeNull()
   })
 })
 

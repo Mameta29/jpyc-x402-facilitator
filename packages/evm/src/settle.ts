@@ -16,7 +16,8 @@ import {
   TRANSFER_EVENT_SIGNATURE,
 } from "./events.js"
 import { JPYC_ABI } from "./abi.js"
-import { splitSignatureComponents, type VerifyOk } from "./verify.js"
+import { checkTimeWindow, splitSignatureComponents, type VerifyOk } from "./verify.js"
+import { parseEip3009RevertReason } from "./revert.js"
 import {
   type Account,
   type Address,
@@ -25,7 +26,7 @@ import {
   type WalletClient,
   formatEther,
 } from "viem"
-import { getJpycChain } from "@jpyc-x402/shared"
+import { X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
 
 export interface SettleOk {
   ok: true
@@ -61,6 +62,18 @@ export async function settleExactPayment(
   const chain = getJpycChain(verified.chainId)
   const { v, r, s } = splitSignatureComponents(signature)
 
+  // Re-check the time window just before broadcast. verifyExactPayment ran
+  // this same check, but settle is serialised per chain (in-process mutex /
+  // Durable Object) and the window can close while waiting for the lock.
+  const timeError = checkTimeWindow(
+    verified.validAfter,
+    verified.validBefore,
+    BigInt(Math.floor(Date.now() / 1000)),
+  )
+  if (timeError) {
+    return { ok: false, reason: timeError }
+  }
+
   let txHash: Hex
   try {
     txHash = await deps.walletClient.writeContract({
@@ -83,8 +96,16 @@ export async function settleExactPayment(
       chain: deps.walletClient.chain,
     })
   } catch (e) {
+    // writeContract simulates before sending; a revert (e.g. an expired
+    // authorization) lands here. Map known EIP-3009 revert strings to a wire
+    // error code so the HTTP layer returns a meaningful `errorReason`.
+    const code = parseEip3009RevertReason(e)
+    if (code) return { ok: false, reason: code }
     const msg = e instanceof Error ? e.message : String(e)
-    return { ok: false, reason: `tx broadcast failed: ${msg.slice(0, 240)}` }
+    return {
+      ok: false,
+      reason: `${X402_ERROR_CODES.unexpected_settle_error}: ${msg.slice(0, 240)}`,
+    }
   }
 
   let receipt

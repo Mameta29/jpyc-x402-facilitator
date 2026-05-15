@@ -126,17 +126,48 @@ describe("settleExactPayment", () => {
     }
   })
 
-  it("returns failure (no txHash) when broadcast throws", async () => {
+  it("returns failure (no txHash) when broadcast throws an unrecognised error", async () => {
     const { deps } = buildDeps({
       writeThrows: new Error("nonce too low"),
     })
     const res = await settleExactPayment(verified, SIGNATURE, deps)
     expect(res.ok).toBe(false)
     if (!res.ok) {
-      expect(res.reason).toMatch(/tx broadcast failed/)
+      // Not a known EIP-3009 revert string → falls back to unexpected_settle_error.
+      expect(res.reason).toMatch(/^unexpected_settle_error/)
       expect(res.reason).toMatch(/nonce too low/)
       expect(res.txHash).toBeUndefined()
     }
+  })
+
+  it("maps an EIP-3009 'authorization is expired' revert to the valid_before code", async () => {
+    const { deps } = buildDeps({
+      writeThrows: new Error(
+        'The contract function "transferWithAuthorization" reverted with the ' +
+          'following reason:\nFiatTokenV2: authorization is expired',
+      ),
+    })
+    const res = await settleExactPayment(verified, SIGNATURE, deps)
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.reason).toBe("invalid_exact_evm_payload_authorization_valid_before")
+      expect(res.txHash).toBeUndefined()
+    }
+  })
+
+  it("rejects an already-expired authorization before broadcasting", async () => {
+    const { deps, walletClient } = buildDeps()
+    const expired = {
+      ...verified,
+      // validBefore in the past → checkTimeWindow fails, writeContract never runs.
+      validBefore: BigInt(Math.floor(Date.now() / 1000)) - 60n,
+    }
+    const res = await settleExactPayment(expired, SIGNATURE, deps)
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.reason).toBe("invalid_exact_evm_payload_authorization_valid_before")
+    }
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
   })
 
   it("returns failure (with txHash) when receipt wait throws", async () => {

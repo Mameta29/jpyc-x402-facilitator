@@ -14,7 +14,7 @@ describe("PaymentRequirements builder", () => {
       amount: "1000000000000000000",
       asset: "0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29",
       payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
-      maxTimeoutSeconds: 90,
+      maxTimeoutSeconds: 300, // DEFAULT_MAX_TIMEOUT_SECONDS
       extra: {
         assetTransferMethod: "eip3009",
         name: "JPY Coin",

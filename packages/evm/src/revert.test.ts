@@ -1,0 +1,82 @@
+/**
+ * Unit tests for `parseEip3009RevertReason`.
+ *
+ * Covers the EIP-3009 revert strings we map to wire error codes, the cause-
+ * chain walk viem produces, and the unrecognised-revert fallthrough.
+ */
+
+import { describe, expect, it } from "vitest"
+import { parseEip3009RevertReason } from "./revert.js"
+
+describe("parseEip3009RevertReason", () => {
+  it("maps 'authorization is expired' to the valid_before code", () => {
+    expect(parseEip3009RevertReason("FiatTokenV2: authorization is expired")).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+  })
+
+  it("maps 'authorization is not yet valid' to the valid_after code", () => {
+    expect(
+      parseEip3009RevertReason("FiatTokenV2: authorization is not yet valid"),
+    ).toBe("invalid_exact_evm_payload_authorization_valid_after")
+  })
+
+  it("maps a used authorization to invalid_transaction_state", () => {
+    expect(
+      parseEip3009RevertReason("FiatTokenV2: authorization is used or canceled"),
+    ).toBe("invalid_transaction_state")
+  })
+
+  it("maps an invalid signature revert to the signature code", () => {
+    expect(parseEip3009RevertReason("ECDSA: invalid signature")).toBe(
+      "invalid_exact_evm_payload_signature",
+    )
+  })
+
+  it("maps an ERC-20 balance shortfall to insufficient_funds", () => {
+    expect(
+      parseEip3009RevertReason("ERC20: transfer amount exceeds balance"),
+    ).toBe("insufficient_funds")
+  })
+
+  it("is case-insensitive", () => {
+    expect(parseEip3009RevertReason("AUTHORIZATION IS EXPIRED")).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+  })
+
+  it("walks the viem-style cause chain", () => {
+    // viem nests the real revert reason a few levels down under `cause`.
+    const err = new Error("The contract function reverted")
+    ;(err as { shortMessage?: string }).shortMessage =
+      'The contract function "transferWithAuthorization" reverted.'
+    ;(err as { cause?: unknown }).cause = {
+      shortMessage: "execution reverted",
+      cause: {
+        reason: "FiatTokenV2: authorization is expired",
+      },
+    }
+    expect(parseEip3009RevertReason(err)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+  })
+
+  it("reads metaMessages arrays viem attaches to ContractFunctionExecutionError", () => {
+    const err = {
+      message: "The contract function reverted",
+      metaMessages: ["Contract Call:", "  reason: FiatTokenV2: authorization is used"],
+    }
+    expect(parseEip3009RevertReason(err)).toBe("invalid_transaction_state")
+  })
+
+  it("returns null for an unrecognised revert", () => {
+    expect(parseEip3009RevertReason(new Error("nonce too low"))).toBeNull()
+    expect(parseEip3009RevertReason("network is busy")).toBeNull()
+  })
+
+  it("returns null for empty or nullish input", () => {
+    expect(parseEip3009RevertReason(null)).toBeNull()
+    expect(parseEip3009RevertReason(undefined)).toBeNull()
+    expect(parseEip3009RevertReason("")).toBeNull()
+  })
+})

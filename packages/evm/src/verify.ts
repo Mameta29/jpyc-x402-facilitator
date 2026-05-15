@@ -194,21 +194,10 @@ export async function verifyExactPayment(
     }
   }
 
-  // 4) time window
-  const t = now()
-  if (t < validAfter) {
-    return {
-      ok: false,
-      reason: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after,
-      payer: a.from as Address,
-    }
-  }
-  if (t >= validBefore) {
-    return {
-      ok: false,
-      reason: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before,
-      payer: a.from as Address,
-    }
+  // 4) time window — same check the settle path re-runs just before broadcast.
+  const timeError = checkTimeWindow(validAfter, validBefore, now())
+  if (timeError) {
+    return { ok: false, reason: timeError, payer: a.from as Address }
   }
 
   // 7) replay: nonce already consumed?
@@ -302,6 +291,39 @@ export async function verifyExactPayment(
     validBefore,
     nonce: a.nonce as Hex,
   }
+}
+
+/**
+ * Block-time grace applied to the `validBefore` check. An authorization that
+ * is still valid *now* but expires within this many seconds would likely be
+ * expired by the time the broadcast tx is mined — we reject it early instead
+ * of paying gas for a revert. Matches the x402 reference facilitator's 6s
+ * buffer ("6 second buffer for block time").
+ */
+export const BLOCK_TIME_GRACE_SECONDS = 6n
+
+/**
+ * Pure time-window check for an EIP-3009 authorization. Returns an x402 error
+ * code string if `now` is outside `[validAfter, validBefore)` (with the
+ * block-time grace folded into the upper bound), or `null` if the window is
+ * still good.
+ *
+ * Split out so both verify (read-only, early) and the settle path (just
+ * before broadcast, after any lock wait) can run the *same* check — the
+ * window can close during the gap between them.
+ */
+export function checkTimeWindow(
+  validAfter: bigint,
+  validBefore: bigint,
+  now: bigint,
+): string | null {
+  if (now < validAfter) {
+    return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after
+  }
+  if (now + BLOCK_TIME_GRACE_SECONDS >= validBefore) {
+    return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before
+  }
+  return null
 }
 
 /** Split a 65-byte ECDSA signature `0x{r}{s}{v}` into the v/r/s tuple. */

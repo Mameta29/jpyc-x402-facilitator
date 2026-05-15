@@ -7,9 +7,12 @@
  * second broadcast simply reverts. This cache is a gas/latency optimisation,
  * not a security boundary.
  *
- * TTL is short (5 minutes default — comfortably longer than the typical x402
- * `maxTimeoutSeconds` of 60-90s, but well below any practical retry burst
- * the agent could mount). Old entries are GC'd lazily.
+ * TTL (10 minutes default) is set a notch above the x402
+ * `DEFAULT_MAX_TIMEOUT_SECONDS` (300s) so a cached entry outlives the
+ * authorization that produced it — once the authorization expires, replays
+ * are rejected by the settle-path time-window check anyway, so the cache only
+ * needs to cover the live window plus a retry-burst margin. Old entries are
+ * GC'd lazily.
  */
 
 export interface NonceCacheRecord {
@@ -27,7 +30,7 @@ export class NonceCache {
   private readonly entries = new Map<string, NonceCacheRecord>()
   private readonly ttlMs: number
 
-  constructor(ttlSeconds = 300) {
+  constructor(ttlSeconds = 600) {
     this.ttlMs = ttlSeconds * 1000
   }
 

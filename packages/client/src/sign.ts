@@ -27,7 +27,11 @@ export interface SignPaymentInput {
   requirements: PaymentRequirements
   /** Override the random nonce (deterministic tests, replay tooling). */
   nonce?: Hex
-  /** Override the validAfter timestamp (default: now). */
+  /**
+   * Override the validAfter timestamp. Default `0` — the authorization is
+   * valid from genesis, so clock skew between the signer and the chain can
+   * never make it "not yet valid". Replay is bounded by `validBefore`.
+   */
   validAfterSeconds?: bigint
   /** Override the validBefore timestamp (default: now + maxTimeoutSeconds). */
   validBeforeSeconds?: bigint

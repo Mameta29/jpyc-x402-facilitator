@@ -37,8 +37,14 @@
 import { DurableObject } from "cloudflare:workers"
 import { type Address, type Hex, createWalletClient, fallback, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { JPYC_ABI, splitSignatureComponents, resolveViemChain } from "@jpyc-x402/evm"
-import { getJpycChain } from "@jpyc-x402/shared"
+import {
+  JPYC_ABI,
+  checkTimeWindow,
+  parseEip3009RevertReason,
+  splitSignatureComponents,
+  resolveViemChain,
+} from "@jpyc-x402/evm"
+import { X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
 import type { WorkerEnv } from "./env"
 
 export interface DoBroadcastInput {
@@ -93,6 +99,22 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   async broadcast(input: DoBroadcastInput): Promise<DoBroadcastResult> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       try {
+        // Re-check the authorization's time window *inside the lock*, right
+        // before broadcast. The parent Worker already verified the payment,
+        // but `blockConcurrencyWhile` can queue this callback behind other
+        // settles on the same chain — by the time we run, `validBefore` may
+        // have passed. Catching it here avoids paying gas for a tx that the
+        // EIP-3009 contract would revert with "authorization is expired".
+        const now = BigInt(Math.floor(Date.now() / 1000))
+        const timeError = checkTimeWindow(
+          BigInt(input.validAfter),
+          BigInt(input.validBefore),
+          now,
+        )
+        if (timeError) {
+          return { ok: false, reason: timeError }
+        }
+
         const chain = getJpycChain(input.chainId)
         const account = this.getAccount()
         const rpcUrls = readRpcUrls(this.env, input.chainId, chain.publicRpc)
@@ -127,7 +149,14 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         })
         return { ok: true, txHash }
       } catch (e) {
-        return { ok: false, reason: e instanceof Error ? e.message : String(e) }
+        // viem's writeContract simulates before sending, so a revert (e.g.
+        // an authorization that expired in the gap between verify and this
+        // broadcast) surfaces here. Map known EIP-3009 revert strings to a
+        // wire error code; fall back to the raw message otherwise.
+        const code = parseEip3009RevertReason(e)
+        if (code) return { ok: false, reason: code }
+        const msg = e instanceof Error ? e.message : String(e)
+        return { ok: false, reason: `${X402_ERROR_CODES.unexpected_settle_error}: ${msg}` }
       }
     })
   }
