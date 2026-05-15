@@ -12,12 +12,10 @@
  * keyed on (chainId, payer, nonce) before broadcasting).
  */
 
-import {
-  TRANSFER_EVENT_SIGNATURE,
-} from "./events.js"
+import { TRANSFER_EVENT_SIGNATURE } from "./events.js"
 import { JPYC_ABI } from "./abi.js"
 import { checkTimeWindow, splitSignatureComponents, type VerifyOk } from "./verify.js"
-import { parseEip3009RevertReason } from "./revert.js"
+import { isRelayerGasExhaustionError, parseEip3009RevertReason } from "./revert.js"
 import {
   type Account,
   type Address,
@@ -26,7 +24,7 @@ import {
   type WalletClient,
   formatEther,
 } from "viem"
-import { X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
+import { FACILITATOR_INTERNAL_ERROR_CODES, X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
 
 export interface SettleOk {
   ok: true
@@ -96,6 +94,14 @@ export async function settleExactPayment(
       chain: deps.walletClient.chain,
     })
   } catch (e) {
+    // The relayer wallet running out of gas is not a contract revert —
+    // classify it first so it never collapses into `unexpected_settle_error`.
+    if (isRelayerGasExhaustionError(e)) {
+      return {
+        ok: false,
+        reason: FACILITATOR_INTERNAL_ERROR_CODES.facilitator_insufficient_native_balance,
+      }
+    }
     // writeContract simulates before sending; a revert (e.g. an expired
     // authorization) lands here. Map known EIP-3009 revert strings to a wire
     // error code so the HTTP layer returns a meaningful `errorReason`.

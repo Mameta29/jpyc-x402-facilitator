@@ -22,9 +22,15 @@ import { X402_ERROR_CODES } from "@jpyc-x402/shared"
  */
 const REVERT_FRAGMENTS: ReadonlyArray<{ needle: string; code: string }> = [
   // EIP-3009: now >= validBefore
-  { needle: "authorization is expired", code: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before },
+  {
+    needle: "authorization is expired",
+    code: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before,
+  },
   // EIP-3009: now <= validAfter
-  { needle: "authorization is not yet valid", code: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after },
+  {
+    needle: "authorization is not yet valid",
+    code: X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after,
+  },
   // EIP-3009: _authorizationStates[authorizer][nonce] already true
   { needle: "authorization is used", code: X402_ERROR_CODES.invalid_transaction_state },
   { needle: "authorization is used or canceled", code: X402_ERROR_CODES.invalid_transaction_state },
@@ -46,6 +52,36 @@ export function parseEip3009RevertReason(error: unknown): string | null {
     if (haystack.includes(needle)) return code
   }
   return null
+}
+
+/**
+ * Detect a "relayer wallet is out of gas" failure.
+ *
+ * This is *not* a contract revert — `transferWithAuthorization` never even
+ * executes. The RPC node rejects the raw tx at submission because the relayer
+ * (the `from` of the on-chain tx, i.e. the facilitator's own wallet) cannot
+ * cover `gasLimit * maxFeePerGas`. viem surfaces it with phrasing that varies
+ * by node implementation, hence the substring set below.
+ *
+ * Without this, gas exhaustion falls through to `unexpected_settle_error`,
+ * which is indistinguishable from a genuine EIP-3009 revert — the exact
+ * ambiguity that sent three teams chasing an RPC bug that did not exist.
+ */
+const GAS_EXHAUSTION_FRAGMENTS: ReadonlyArray<string> = [
+  "insufficient funds for gas",
+  // geth / bor: "insufficient funds for gas * price + value"
+  "insufficient funds for gas * price + value",
+  // some nodes phrase it as a balance comparison
+  "insufficient funds for transfer",
+  "exceeds the balance of the account",
+  // nethermind / erigon variants
+  "insufficient balance for transaction",
+]
+
+export function isRelayerGasExhaustionError(error: unknown): boolean {
+  const haystack = extractErrorText(error).toLowerCase()
+  if (!haystack) return false
+  return GAS_EXHAUSTION_FRAGMENTS.some((needle) => haystack.includes(needle))
 }
 
 /**

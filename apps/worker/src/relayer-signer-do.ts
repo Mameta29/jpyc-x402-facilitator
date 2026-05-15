@@ -40,11 +40,12 @@ import { privateKeyToAccount } from "viem/accounts"
 import {
   JPYC_ABI,
   checkTimeWindow,
+  isRelayerGasExhaustionError,
   parseEip3009RevertReason,
   splitSignatureComponents,
   resolveViemChain,
 } from "@jpyc-x402/evm"
-import { X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
+import { FACILITATOR_INTERNAL_ERROR_CODES, X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
 import type { WorkerEnv } from "./env"
 
 export interface DoBroadcastInput {
@@ -106,11 +107,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         // have passed. Catching it here avoids paying gas for a tx that the
         // EIP-3009 contract would revert with "authorization is expired".
         const now = BigInt(Math.floor(Date.now() / 1000))
-        const timeError = checkTimeWindow(
-          BigInt(input.validAfter),
-          BigInt(input.validBefore),
-          now,
-        )
+        const timeError = checkTimeWindow(BigInt(input.validAfter), BigInt(input.validBefore), now)
         if (timeError) {
           return { ok: false, reason: timeError }
         }
@@ -170,6 +167,17 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
             stack: err?.stack,
           }),
         )
+        // The relayer wallet itself being out of gas is not a contract
+        // revert — classify it first so it never collapses into the opaque
+        // `unexpected_settle_error` bucket. The cron balance monitor warns on
+        // a low relayer balance; this is the same condition observed at the
+        // moment of broadcast, surfaced with an actionable wire code.
+        if (isRelayerGasExhaustionError(e)) {
+          return {
+            ok: false,
+            reason: FACILITATOR_INTERNAL_ERROR_CODES.facilitator_insufficient_native_balance,
+          }
+        }
         // viem's writeContract simulates before sending, so a revert (e.g.
         // an authorization that expired in the gap between verify and this
         // broadcast) surfaces here. Map known EIP-3009 revert strings to a
