@@ -32,6 +32,7 @@ import {
   RateLimiter,
   createApp,
   loadConfig,
+  parseDiscoveryConfig,
 } from "@jpyc-x402/facilitator"
 import { caip2ToEvmChainId } from "@jpyc-x402/shared"
 import type { Hex } from "viem"
@@ -107,6 +108,7 @@ export default {
       balanceCache: bundle.balanceCache,
       cors: bundle.config.cors,
       nodeEnv: bundle.config.nodeEnv,
+      discovery: parseDiscoveryConfig(env.X402_DISCOVERY_RESOURCES) ?? undefined,
     })
     return app.fetch(request, env as unknown as Record<string, unknown>, ctx)
   },

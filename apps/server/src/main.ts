@@ -28,6 +28,7 @@ import {
   RateLimiter,
   createApp,
   loadConfig,
+  parseDiscoveryConfig,
 } from "@jpyc-x402/facilitator"
 import { getJpycChain } from "@jpyc-x402/shared"
 
@@ -74,6 +75,7 @@ async function main() {
     balanceCache,
     cors: config.cors,
     nodeEnv: config.nodeEnv,
+    discovery: parseDiscoveryConfig(process.env.X402_DISCOVERY_RESOURCES) ?? undefined,
   })
 
   const server = serve({ fetch: app.fetch, port: config.port }, (info) => {

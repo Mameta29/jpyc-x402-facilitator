@@ -29,6 +29,8 @@ import {
   settleRequestSchema,
   verifyRequestSchema,
   X402_VERSION,
+  type DiscoveryResource,
+  type DiscoveryResourcesResponse,
   type SettlementResponse,
   type SupportedResponse,
   type VerifyResponse,
@@ -49,6 +51,14 @@ export interface AppDeps {
   cors: { origins: string[] }
   /** Node env, used to gate verbose error responses. */
   nodeEnv: "development" | "staging" | "production" | "test"
+  /**
+   * Static x402 Bazaar discovery catalog. Lists the x402-payable resources
+   * this facilitator fronts (e.g. the JPYC EC checkout). The host builds it
+   * from configuration — this facilitator is DB-free, so the catalog is
+   * static rather than populated from observed settlements. Omitted/empty
+   * means GET /discovery/resources returns an empty catalog.
+   */
+  discovery?: { resources: DiscoveryResource[] }
 }
 
 export function createApp(deps: AppDeps) {
@@ -69,8 +79,32 @@ export function createApp(deps: AppDeps) {
   app.get("/supported", (c) => {
     const body: SupportedResponse = {
       kinds: deps.facilitator.supported(),
-      extensions: [],
+      // "bazaar" advertises that this facilitator exposes the discovery
+      // layer at GET /discovery/resources.
+      extensions: deps.discovery ? ["bazaar"] : [],
       signers: deps.facilitator.signers(),
+    }
+    return c.json(body)
+  })
+
+  // x402 Bazaar discovery layer — lets agents and clients enumerate the
+  // x402-payable resources this facilitator fronts. Catalog is static
+  // (config-driven) since the facilitator is DB-free.
+  app.get("/discovery/resources", (c) => {
+    const all = deps.discovery?.resources ?? []
+    const rawLimit = Number(c.req.query("limit") ?? "100")
+    const rawOffset = Number(c.req.query("offset") ?? "0")
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(1000, Math.max(1, Math.trunc(rawLimit)))
+      : 100
+    const offset = Number.isFinite(rawOffset)
+      ? Math.max(0, Math.trunc(rawOffset))
+      : 0
+
+    const body: DiscoveryResourcesResponse = {
+      x402Version: X402_VERSION,
+      items: all.slice(offset, offset + limit),
+      pagination: { limit, offset, total: all.length },
     }
     return c.json(body)
   })

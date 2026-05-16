@@ -154,3 +154,43 @@ export const supportedResponseSchema = z.object({
   signers: z.record(z.array(hexAddress)),
 })
 export type SupportedResponse = z.infer<typeof supportedResponseSchema>
+
+/**
+ * One x402-payable resource in the discovery catalog (the x402 Bazaar
+ * discovery layer). Shape follows the CDP Bazaar `/discovery/resources`
+ * item: a monetized endpoint plus its accepted payment requirements and
+ * optional input/output metadata so an agent can pre-inspect it.
+ */
+export const discoveryResourceSchema = z.object({
+  /** The monetized endpoint URL. */
+  resource: z.string().min(1),
+  /** Protocol designation; "http" for an HTTP endpoint. */
+  type: z.literal("http"),
+  x402Version: z.literal(X402_VERSION),
+  /** Payment requirements the resource accepts. */
+  accepts: z.array(paymentRequirementsSchema).min(1),
+  /** ISO 8601 timestamp of the last catalog refresh. */
+  lastUpdated: z.string(),
+  /** Human description plus Bazaar input/output JSON Schemas. */
+  metadata: z
+    .object({
+      description: z.string().optional(),
+      inputSchema: z.record(z.unknown()).optional(),
+      outputSchema: z.record(z.unknown()).optional(),
+    })
+    .optional(),
+})
+export type DiscoveryResource = z.infer<typeof discoveryResourceSchema>
+
+export const discoveryResourcesResponseSchema = z.object({
+  x402Version: z.literal(X402_VERSION),
+  items: z.array(discoveryResourceSchema),
+  pagination: z.object({
+    limit: z.number().int().nonnegative(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+})
+export type DiscoveryResourcesResponse = z.infer<
+  typeof discoveryResourcesResponseSchema
+>

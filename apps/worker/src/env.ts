@@ -13,6 +13,10 @@ export interface WorkerEnv {
   NODE_ENV: "development" | "staging" | "production" | "test"
   ENABLED_NETWORKS: string
   CORS_ORIGINS: string
+  // Optional x402 Bazaar discovery catalog — a JSON array of
+  // DiscoveryResource objects served at GET /discovery/resources. Absent or
+  // malformed disables discovery. May be set as a var or a secret.
+  X402_DISCOVERY_RESOURCES?: string
 
   // ── Secrets (wrangler secret put) ──────────────────────────────────────
   RELAYER_PRIVATE_KEY: string
