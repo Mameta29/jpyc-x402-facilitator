@@ -12,12 +12,30 @@ banner — it doesn't fail.
 
 ## Required env vars
 
+### amoy.test.ts — facilitator-class real settle
+
 ```env
 E2E_BUYER_PRIVATE_KEY=0x...      # holds JPYC on Amoy
 E2E_RELAYER_PRIVATE_KEY=0x...    # holds native POL for gas
 E2E_SHOP_ADDRESS=0x...           # arbitrary recipient
 RPC_URLS_80002=https://...       # optional; falls back to public Amoy RPC
 ```
+
+### fuji-hmac-auth.test.ts — HMAC auth + real settle over HTTP
+
+Boots the real facilitator Hono app on a localhost HTTP server with HMAC
+auth enabled, then drives it with the EC platform's request signer (imported
+by path from a sibling `jpyc-ec-platform` checkout). Proves the two repos'
+HMAC wire formats interoperate, and that an unauthenticated `/settle` is
+rejected before any RPC work.
+
+```env
+E2E_FUJI_PRIVATE_KEY=0x...       # holds JPYC + native AVAX on Fuji
+E2E_SHOP_ADDRESS=0x...           # optional; defaults to the signer address
+RPC_URLS_43113=https://...       # optional; falls back to public Fuji RPC
+```
+
+Requires `jpyc-ec-platform` checked out as a sibling directory of this repo.
 
 ## Funding the test wallets
 

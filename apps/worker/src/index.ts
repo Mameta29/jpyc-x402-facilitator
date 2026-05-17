@@ -28,6 +28,7 @@ import {
 } from "@jpyc-x402/evm"
 import {
   BalanceCache,
+  HmacAuthenticator,
   NonceCache,
   RateLimiter,
   createApp,
@@ -67,6 +68,7 @@ interface CtorBundle {
   rateLimiter: RateLimiter
   nonceCache: NonceCache
   balanceCache: BalanceCache
+  authenticator: HmacAuthenticator
   config: ReturnType<typeof loadConfig>
 }
 
@@ -93,8 +95,9 @@ function buildBundle(env: WorkerEnv): CtorBundle {
   const rateLimiter = new RateLimiter(config.rateLimit)
   const nonceCache = new NonceCache(/* ttlSeconds */ 300)
   const balanceCache = isolateState.getOrInit().balance
+  const authenticator = new HmacAuthenticator({ keys: config.hmacKeys })
 
-  return { facilitator, runner, rateLimiter, nonceCache, balanceCache, config }
+  return { facilitator, runner, rateLimiter, nonceCache, balanceCache, authenticator, config }
 }
 
 export default {
@@ -108,6 +111,7 @@ export default {
       balanceCache: bundle.balanceCache,
       cors: bundle.config.cors,
       nodeEnv: bundle.config.nodeEnv,
+      authenticator: bundle.authenticator,
       discovery: parseDiscoveryConfig(env.X402_DISCOVERY_RESOURCES) ?? undefined,
     })
     return app.fetch(request, env as unknown as Record<string, unknown>, ctx)

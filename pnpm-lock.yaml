@@ -97,12 +97,18 @@ importers:
 
   e2e:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.14(hono@4.12.18)
       '@jpyc-x402/client':
         specifier: workspace:*
         version: link:../packages/client
       '@jpyc-x402/evm':
         specifier: workspace:*
         version: link:../packages/evm
+      '@jpyc-x402/facilitator':
+        specifier: workspace:*
+        version: link:../packages/facilitator
       '@jpyc-x402/shared':
         specifier: workspace:*
         version: link:../packages/shared

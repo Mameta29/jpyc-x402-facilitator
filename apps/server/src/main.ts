@@ -23,6 +23,7 @@ import {
 } from "@jpyc-x402/evm"
 import {
   BalanceCache,
+  HmacAuthenticator,
   InProcessSettleRunner,
   NonceCache,
   RateLimiter,
@@ -49,6 +50,14 @@ async function main() {
   const rateLimiter = new RateLimiter(config.rateLimit)
   const nonceCache = new NonceCache(/* ttlSeconds */ 300)
   const balanceCache = new BalanceCache(config.relayerBalance)
+  const authenticator = new HmacAuthenticator({ keys: config.hmacKeys })
+  console.info(
+    `[startup] request auth: ${
+      authenticator.hasKeys
+        ? `${config.hmacKeys.length} HMAC key(s)`
+        : "DISABLED (development only)"
+    }`,
+  )
 
   // Refresh balance for every enabled chain at boot, then on a 60s interval.
   // Per-chain failures are isolated; one dead RPC doesn't stop startup.
@@ -75,6 +84,7 @@ async function main() {
     balanceCache,
     cors: config.cors,
     nodeEnv: config.nodeEnv,
+    authenticator,
     discovery: parseDiscoveryConfig(process.env.X402_DISCOVERY_RESOURCES) ?? undefined,
   })
 

@@ -15,6 +15,7 @@
 
 import { z } from "zod"
 import { caip2ToEvmChainId, listJpycChains } from "@jpyc-x402/shared"
+import { parseHmacKeys, type HmacKey } from "./auth.js"
 
 export interface FacilitatorConfig {
   port: number
@@ -36,6 +37,12 @@ export interface FacilitatorConfig {
   cors: {
     origins: string[]
   }
+  /**
+   * HMAC request-auth keys for /verify, /settle, /supported. Empty only when
+   * the deployment intentionally runs unauthenticated — loadConfig refuses to
+   * boot with an empty list outside development/test. See ./auth.ts.
+   */
+  hmacKeys: HmacKey[]
 }
 
 const envSchema = z.object({
@@ -49,6 +56,9 @@ const envSchema = z.object({
   RELAYER_BALANCE_LOW_NATIVE: z.coerce.number().nonnegative().default(0.05),
   RELAYER_BALANCE_CRITICAL_NATIVE: z.coerce.number().nonnegative().default(0.005),
   CORS_ORIGINS: z.string().default("*"),
+  // Comma-separated `keyId:secret` pairs for HMAC request auth. Required
+  // outside development/test — see the boot check below.
+  FACILITATOR_HMAC_KEYS: z.string().optional(),
 })
 
 export function loadConfig(
@@ -85,6 +95,22 @@ export function loadConfig(
     )
   }
 
+  // HMAC request auth. Parsing throws on a malformed list regardless of env.
+  const hmacKeys = parseHmacKeys(parsed.FACILITATOR_HMAC_KEYS)
+
+  // Refuse to boot a staging/production facilitator with no auth keys. The
+  // facilitator spends relayer gas on every settle; an unauthenticated public
+  // endpoint lets anyone drain that budget. Development/test may run open so
+  // local work and the test suite don't need keys — the app logs a warning.
+  if (hmacKeys.length === 0 && (parsed.NODE_ENV === "production" || parsed.NODE_ENV === "staging")) {
+    throw new Error(
+      "FACILITATOR_HMAC_KEYS is required in staging/production. " +
+        "Set it to a comma-separated list of 'keyId:secret' pairs so /verify, " +
+        "/settle and /supported reject unauthenticated callers. " +
+        "To intentionally run an open facilitator, deploy with NODE_ENV=development.",
+    )
+  }
+
   return {
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
@@ -104,5 +130,6 @@ export function loadConfig(
     cors: {
       origins: corsOrigins,
     },
+    hmacKeys,
   }
 }

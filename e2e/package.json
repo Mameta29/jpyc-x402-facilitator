@@ -12,8 +12,10 @@
     "test": "echo 'use test:e2e'"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.0",
     "@jpyc-x402/client": "workspace:*",
     "@jpyc-x402/evm": "workspace:*",
+    "@jpyc-x402/facilitator": "workspace:*",
     "@jpyc-x402/shared": "workspace:*",
     "viem": "^2.21.0"
   },

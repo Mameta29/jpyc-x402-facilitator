@@ -5,6 +5,15 @@
 # funded with native gas on every chain you enabled in wrangler.jsonc.
 RELAYER_PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000000
 
+# HMAC request-auth keys guarding /verify, /settle, /supported.
+# Comma-separated `keyId:secret` pairs — one keyId per caller for per-caller
+# revocation. Generate a secret with `openssl rand -hex 32`.
+# REQUIRED because wrangler.jsonc sets NODE_ENV=staging even for `wrangler
+# dev`; the Worker refuses to boot without it. For staging/production set the
+# real value via `wrangler secret put FACILITATOR_HMAC_KEYS --env <env>`.
+# See packages/facilitator/src/auth.ts for the request signing wire format.
+FACILITATOR_HMAC_KEYS=local-dev:0000000000000000000000000000000000000000000000000000000000000000
+
 # Per-chain RPC URLs (comma-separated for fallback).
 RPC_URLS_1=https://eth-mainnet.g.alchemy.com/v2/<KEY>
 RPC_URLS_137=https://polygon-mainnet.g.alchemy.com/v2/<KEY>

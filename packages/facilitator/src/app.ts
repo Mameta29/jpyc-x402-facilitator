@@ -41,6 +41,7 @@ import { RateLimiter } from "./rate-limit.js"
 import { BalanceCache } from "./balance-cache.js"
 import { NonceCache } from "./nonce-cache.js"
 import type { SettleRunner } from "./settle-runner.js"
+import { HmacAuthenticator } from "./auth.js"
 
 export interface AppDeps {
   facilitator: ExactEvmFacilitator
@@ -51,6 +52,12 @@ export interface AppDeps {
   cors: { origins: string[] }
   /** Node env, used to gate verbose error responses. */
   nodeEnv: "development" | "staging" | "production" | "test"
+  /**
+   * HMAC request authenticator guarding /verify, /settle and /supported.
+   * When omitted (or constructed with no keys) those endpoints run
+   * unauthenticated — loadConfig only permits that in development/test.
+   */
+  authenticator?: HmacAuthenticator
   /**
    * Static x402 Bazaar discovery catalog. Lists the x402-payable resources
    * this facilitator fronts (e.g. the JPYC EC checkout). The host builds it
@@ -69,10 +76,62 @@ export function createApp(deps: AppDeps) {
     "*",
     cors({
       origin: deps.cors.origins.includes("*") ? "*" : deps.cors.origins,
-      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE"],
+      allowHeaders: ["Content-Type", "PAYMENT-SIGNATURE", "Authorization"],
       exposeHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
     }),
   )
+
+  // HMAC request auth for the mutating + advertising endpoints. /health, /
+  // and /discovery/resources stay public: the first two carry no payload and
+  // the discovery catalog is meant to be crawled by x402 Bazaar agents.
+  //
+  // The middleware buffers the raw body once via c.req.arrayBuffer(); Hono
+  // caches it, so the downstream handler's c.req.json() reuses the same bytes
+  // without re-reading the stream.
+  const authMiddleware = async (c: Context, next: () => Promise<void>) => {
+    const auth = deps.authenticator
+    if (!auth || !auth.hasKeys) {
+      // No keys configured — loadConfig only allows this in development/test.
+      // Log once per request so an accidentally-open deploy is visible.
+      console.warn(
+        JSON.stringify({ ev: "auth.disabled", path: c.req.path, method: c.req.method }),
+      )
+      await next()
+      return
+    }
+
+    const url = new URL(c.req.url)
+    const body =
+      c.req.method === "GET" || c.req.method === "HEAD"
+        ? new Uint8Array(0)
+        : new Uint8Array(await c.req.arrayBuffer())
+
+    const result = await auth.authenticate({
+      method: c.req.method,
+      path: url.pathname,
+      authorizationHeader: c.req.header("authorization"),
+      body,
+    })
+    if (!result.ok) {
+      // `detail` is the operator-facing diagnosis (never sent to the client).
+      // `bodyLen` is logged on a signature mismatch so a body-encoding drift
+      // between signer and verifier is visible — it's the most common cause.
+      console.warn(
+        JSON.stringify({
+          ev: "auth.rejected",
+          path: url.pathname,
+          method: c.req.method,
+          detail: result.detail,
+          bodyLen: body.byteLength,
+        }),
+      )
+      return c.json({ error: "unauthorized" }, result.status)
+    }
+    await next()
+  }
+  app.use("/verify", authMiddleware)
+  app.use("/settle", authMiddleware)
+  app.use("/supported", authMiddleware)
 
   app.get("/health", (c) => c.json({ ok: true }))
 
