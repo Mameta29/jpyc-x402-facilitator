@@ -8,14 +8,21 @@
  *     each enabled chain (cron triggered by wrangler.jsonc)
  *   - RelayerSignerDO: the Durable Object class consumed via `env.RELAYER`
  *
- * The handler is stateless across requests — every Worker isolate gets its
- * own facilitator/runner/cache instances. That's fine because:
+ * State scoping: the rate limiter, nonce dedupe cache, HMAC replay store and
+ * balance cache are held at *isolate* scope (module-level, reused across
+ * requests in the same isolate) — NOT rebuilt per request. Rebuilding them per
+ * request would reset every counter on each call, so per-payer rate limiting,
+ * nonce dedupe and HMAC replay detection would never fire. This is still only
+ * per-isolate, not global:
  *
- *   - Rate limit per isolate is conservative: a hot wallet hitting many
- *     isolates concurrently still tops out at the global RPC limits.
- *   - The nonce dedupe cache is best-effort only; the contract is the source
- *     of truth, and a duplicate broadcast costs at most one revert worth of
- *     gas, not money or correctness.
+ *   - Rate limit / nonce dedupe / HMAC replay are per-isolate best-effort.
+ *     Cloudflare runs many isolates concurrently, so a caller spreading load
+ *     across isolates weakens these. The authoritative broadcast serialization
+ *     is the per-chain RelayerSignerDO (`blockConcurrencyWhile`), and the
+ *     JPYC contract's `authorizationState` is the final replay guard — a
+ *     duplicate broadcast costs at most one revert's gas, never correctness.
+ *     Operators MUST also enforce per-IP / per-route limits at the Cloudflare
+ *     WAF layer; see docs/threat-model.md.
  *   - Balance cache is refreshed by the scheduled handler regardless of which
  *     isolate is active; missing entries fall back to "not critical" so we
  *     never refuse a settle on stale data alone.
@@ -44,20 +51,31 @@ import { WorkerSettleRunner } from "./worker-settle-runner"
 // Re-export the DO class so wrangler can find it.
 export { RelayerSignerDO } from "./relayer-signer-do"
 
-// One global cache per isolate; survives between requests in the same isolate
-// but is not shared across isolates. That's intentional — see module header.
+// Isolate-scoped, stateful singletons. These MUST persist across requests in
+// the same isolate — see module header. Rebuilding them per request would
+// reset every counter and defeat rate limiting / nonce dedupe / HMAC replay.
+// Not shared across isolates (per-isolate best-effort; WAF + DO are the
+// authoritative layers).
 const isolateState = (() => {
-  let cache: { balance: BalanceCache } | null = null
+  let state: {
+    balance: BalanceCache
+    rateLimiter: RateLimiter
+    nonceCache: NonceCache
+    authenticator: HmacAuthenticator
+  } | null = null
   return {
-    getOrInit(): { balance: BalanceCache } {
-      if (cache) return cache
-      cache = {
+    getOrInit(config: ReturnType<typeof loadConfig>): NonNullable<typeof state> {
+      if (state) return state
+      state = {
         // Defaults are loaded on first init and reused; thresholds rarely
         // change at runtime, and re-reading env on every request would
         // mask config drift.
         balance: new BalanceCache({ lowNative: 0.05, criticalNative: 0.005 }),
+        rateLimiter: new RateLimiter(config.rateLimit),
+        nonceCache: new NonceCache(/* ttlSeconds */ 300),
+        authenticator: new HmacAuthenticator({ keys: config.hmacKeys }),
       }
-      return cache
+      return state
     },
   }
 })()
@@ -92,12 +110,20 @@ function buildBundle(env: WorkerEnv): CtorBundle {
   })
 
   const runner = new WorkerSettleRunner(env, facilitator, rpcResolver)
-  const rateLimiter = new RateLimiter(config.rateLimit)
-  const nonceCache = new NonceCache(/* ttlSeconds */ 300)
-  const balanceCache = isolateState.getOrInit().balance
-  const authenticator = new HmacAuthenticator({ keys: config.hmacKeys })
 
-  return { facilitator, runner, rateLimiter, nonceCache, balanceCache, authenticator, config }
+  // Stateful singletons come from isolate scope so their counters survive
+  // across requests in this isolate (rate limit, nonce dedupe, HMAC replay).
+  const state = isolateState.getOrInit(config)
+
+  return {
+    facilitator,
+    runner,
+    rateLimiter: state.rateLimiter,
+    nonceCache: state.nonceCache,
+    balanceCache: state.balance,
+    authenticator: state.authenticator,
+    config,
+  }
 }
 
 export default {

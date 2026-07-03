@@ -227,6 +227,37 @@ describe("HmacAuthenticator", () => {
     expect(result.ok).toBe(true)
   })
 
+  it("rejects a replayed (identical) request with detail=replayed_nonce", async () => {
+    const auth = new HmacAuthenticator({ keys: [KEY], skewSeconds: 300 })
+    const body = enc.encode('{"amount":"100"}')
+    const now = new Date("2026-05-17T00:00:00Z")
+    const header = await signRequest({ key: KEY, method: "POST", path: "/settle", body, now })
+
+    // First send: accepted.
+    const first = await auth.authenticate(
+      { method: "POST", path: "/settle", authorizationHeader: header, body },
+      now,
+    )
+    expect(first.ok).toBe(true)
+
+    // Exact same header + body, still within the skew window: rejected as replay.
+    const replay = await auth.authenticate(
+      { method: "POST", path: "/settle", authorizationHeader: header, body },
+      new Date("2026-05-17T00:01:00Z"),
+    )
+    expect(replay.ok).toBe(false)
+    if (!replay.ok) expect(replay.detail).toBe("replayed_nonce")
+  })
+
+  it("accepts two distinct requests (different nonces) from the same caller", async () => {
+    const auth = new HmacAuthenticator({ keys: [KEY], skewSeconds: 300 })
+    // roundTrip generates a fresh random nonce each time → both accepted.
+    const r1 = await roundTrip({ auth })
+    const r2 = await roundTrip({ auth })
+    expect(r1.ok).toBe(true)
+    expect(r2.ok).toBe(true)
+  })
+
   it("selects the matching key when several are configured", async () => {
     const k2: HmacKey = { keyId: "partner-a", secret: "another-secret" }
     const auth = new HmacAuthenticator({ keys: [KEY, k2] })

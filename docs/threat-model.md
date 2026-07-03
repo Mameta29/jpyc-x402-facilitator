@@ -29,7 +29,21 @@ explicitly defend against and the ones we accept.
 
 ### Resource exhaustion
 - Per-payer rate limit (request count + JPYC value cap) enforced via
-  in-memory rolling-window buckets per process.
+  in-memory rolling-window buckets.
+  - **Node (`apps/server`):** single process (`max-machines-running=1`), so
+    the buckets are authoritative.
+  - **Workers (`apps/worker`):** the buckets live at *isolate* scope, so they
+    are **best-effort** — Cloudflare runs many isolates and a caller spreading
+    load across them weakens per-payer limits. Operators MUST additionally
+    enforce per-IP / per-route limits at the Cloudflare WAF. The authoritative
+    broadcast serialization is the per-chain `RelayerSignerDO`, and the JPYC
+    contract's `authorizationState` is the final replay guard; a duplicate
+    broadcast costs at most one revert's gas, never correctness.
+- HMAC request auth carries a per-request nonce; the verifier rejects a
+  replayed `(keyId, nonce)` within the timestamp skew window. On Workers this
+  replay store is per-isolate (same best-effort caveat as the rate limiter).
+- `validBefore` is capped at `now + maxTimeoutSeconds` in verify, so an
+  authorization can't be given an arbitrarily long life to feed later replays.
 - Per-chain RPC fallback prevents one bad endpoint from saturating the
   request queue.
 - Relayer wallets refuse to settle when below critical native balance.

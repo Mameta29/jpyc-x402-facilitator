@@ -195,7 +195,14 @@ export async function verifyExactPayment(
   }
 
   // 4) time window — same check the settle path re-runs just before broadcast.
-  const timeError = checkTimeWindow(validAfter, validBefore, now())
+  //    The upper bound uses requirements.maxTimeoutSeconds so an over-long
+  //    validBefore (time-shift / gas-drain vector) is rejected here.
+  const timeError = checkTimeWindow(
+    validAfter,
+    validBefore,
+    now(),
+    BigInt(required.maxTimeoutSeconds),
+  )
   if (timeError) {
     return { ok: false, reason: timeError, payer: a.from as Address }
   }
@@ -311,16 +318,33 @@ export const BLOCK_TIME_GRACE_SECONDS = 6n
  * Split out so both verify (read-only, early) and the settle path (just
  * before broadcast, after any lock wait) can run the *same* check — the
  * window can close during the gap between them.
+ *
+ * `maxTimeoutSeconds` (optional) caps how far into the future `validBefore`
+ * may sit. x402's `maxTimeoutSeconds` is the intended maximum lifetime of an
+ * authorization; without this bound a signer could set `validBefore = now +
+ * years`, defeating the per-window rate limit and the NonceCache TTL
+ * assumptions (an authorization that outlives the cache can be replayed into a
+ * broadcast that reverts on-chain, burning gas). Pass it at verify time so
+ * over-long authorizations are rejected up front.
  */
 export function checkTimeWindow(
   validAfter: bigint,
   validBefore: bigint,
   now: bigint,
+  maxTimeoutSeconds?: bigint,
 ): string | null {
   if (now < validAfter) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after
   }
   if (now + BLOCK_TIME_GRACE_SECONDS >= validBefore) {
+    return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before
+  }
+  // Upper bound: validBefore must not sit further than maxTimeoutSeconds
+  // (plus block-time grace) into the future.
+  if (
+    maxTimeoutSeconds !== undefined &&
+    validBefore > now + maxTimeoutSeconds + BLOCK_TIME_GRACE_SECONDS
+  ) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before
   }
   return null

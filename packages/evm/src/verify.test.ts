@@ -32,9 +32,25 @@ import {
 const CHAIN_ID = 80002 // Polygon Amoy
 const PAYTO = "0x209693Bc6afc0C5328bA36FaF03C514EF312287C" as const
 const NONCE = "0xf3746613c2d920b5fdabc0856f2aeb2d4f88ee6037b8cc5d04a71a4462f13480" as const
+// Fixed clock for the whole verify suite. validBefore must sit within
+// maxTimeoutSeconds (default 300s) of `now`, otherwise the upper-bound check
+// added for the "unbounded validBefore" mitigation rejects it. All
+// verifyExactPayment calls below pass `() => FIXED_NOW` so signing time and
+// verification time agree.
+const FIXED_NOW = 1_700_000_000n
 const VALID_AFTER = 0n
-const VALID_BEFORE = 9_999_999_999n
+const VALID_BEFORE = FIXED_NOW + 250n // inside the 300s max-timeout window
 const VALUE = 1_000_000_000_000_000_000n // 1 JPYC
+
+/** verifyExactPayment with the suite's fixed clock. */
+function verifyAt(
+  payload: PaymentPayload,
+  required: PaymentRequirements,
+  deps: Parameters<typeof verifyExactPayment>[2],
+  now: bigint = FIXED_NOW,
+) {
+  return verifyExactPayment(payload, required, deps, () => now)
+}
 
 async function buildSignedPayload(
   privateKey: Hex,
@@ -203,7 +219,7 @@ describe("verifyExactPayment + malleability", () => {
       payload: { ...payload.payload, signature: variant },
     }
     const publicClient = mockPublicClient({ balance: VALUE * 5n })
-    const res = await verifyExactPayment(tampered, required, {
+    const res = await verifyAt(tampered, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -264,6 +280,29 @@ describe("checkTimeWindow", () => {
     // One second earlier than the grace boundary → still accepted.
     expect(checkTimeWindow(AFTER, BEFORE, justInsideGrace - 1n)).toBeNull()
   })
+
+  it("rejects a validBefore further than maxTimeoutSeconds into the future", () => {
+    const now = 1_000n
+    const maxTimeout = 300n
+    // validBefore sits 10 years out — well beyond now + maxTimeout + grace.
+    const farBefore = now + 10n * 365n * 24n * 3600n
+    expect(checkTimeWindow(now, farBefore, now, maxTimeout)).toBe(
+      "invalid_exact_evm_payload_authorization_valid_before",
+    )
+  })
+
+  it("accepts a validBefore within maxTimeoutSeconds", () => {
+    const now = 1_000n
+    const maxTimeout = 300n
+    // 200s out — inside the window and under the cap → accepted.
+    expect(checkTimeWindow(now, now + 200n, now, maxTimeout)).toBeNull()
+  })
+
+  it("ignores the upper bound when maxTimeoutSeconds is omitted", () => {
+    const now = 1_000n
+    const farBefore = now + 10n * 365n * 24n * 3600n
+    expect(checkTimeWindow(now, farBefore, now)).toBeNull()
+  })
 })
 
 describe("verifyExactPayment", () => {
@@ -272,7 +311,7 @@ describe("verifyExactPayment", () => {
     const { payload, required, payerAddress } = await buildSignedPayload(sk)
     const account = privateKeyToAccount(sk)
     const publicClient = mockPublicClient({ balance: VALUE * 5n })
-    const res = await verifyExactPayment(payload, required, {
+    const res = await verifyAt(payload, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -305,7 +344,7 @@ describe("verifyExactPayment", () => {
     })) as Hex
     const tampered = { ...payload, payload: { ...payload.payload, signature: forged } }
     const publicClient = mockPublicClient({})
-    const res = await verifyExactPayment(tampered, required, {
+    const res = await verifyAt(tampered, required, {
       publicClient,
       relayerAccount: attackerAccount,
     })
@@ -334,7 +373,7 @@ describe("verifyExactPayment", () => {
     const { payload, required } = await buildSignedPayload(sk)
     const account = privateKeyToAccount(sk)
     const publicClient = mockPublicClient({ balance: VALUE - 1n })
-    const res = await verifyExactPayment(payload, required, {
+    const res = await verifyAt(payload, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -347,7 +386,7 @@ describe("verifyExactPayment", () => {
     const { payload, required } = await buildSignedPayload(sk)
     const account = privateKeyToAccount(sk)
     const publicClient = mockPublicClient({ authorizationUsed: true })
-    const res = await verifyExactPayment(payload, required, {
+    const res = await verifyAt(payload, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -362,7 +401,7 @@ describe("verifyExactPayment", () => {
     const publicClient = mockPublicClient({
       simulateThrows: new Error("execution reverted: FiatTokenV2: invalid signature"),
     })
-    const res = await verifyExactPayment(payload, required, {
+    const res = await verifyAt(payload, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -385,7 +424,7 @@ describe("verifyExactPayment", () => {
       },
     }
     const publicClient = mockPublicClient({ balance: VALUE * 5n })
-    const res = await verifyExactPayment(tampered, required, {
+    const res = await verifyAt(tampered, required, {
       publicClient,
       relayerAccount: account,
     })
@@ -413,7 +452,7 @@ describe("verifyExactPayment", () => {
       accepted: { ...payload.accepted, asset: tamperedReq.asset },
     }
     const publicClient = mockPublicClient({})
-    const res = await verifyExactPayment(tamperedPayload, tamperedReq, {
+    const res = await verifyAt(tamperedPayload, tamperedReq, {
       publicClient,
       relayerAccount: account,
     })

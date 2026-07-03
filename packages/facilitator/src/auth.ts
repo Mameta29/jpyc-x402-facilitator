@@ -20,20 +20,28 @@
  *   - Keys are `keyId:secret` pairs listed in the FACILITATOR_HMAC_KEYS env
  *     var. Revoking a caller means removing one entry and redeploying.
  *   - Each request carries an HMAC-SHA256 over a canonical string covering the
- *     method, path, timestamp and body — so the signature can't be replayed
- *     against a different route or mutated body.
- *   - A timestamp skew window bounds replay of an identical request.
+ *     method, path, timestamp, a per-request nonce and body — so the signature
+ *     can't be replayed against a different route or mutated body.
+ *   - A timestamp skew window bounds replay of an identical request, and a
+ *     short-lived server-side record of used `(keyId, nonce)` pairs rejects
+ *     replays *within* that window (the skew window alone would otherwise let
+ *     an identical captured request be re-sent freely for ±skewSeconds).
  *
  * Wire format
  * -----------
- *   Authorization: X402-HMAC keyId=<id>, ts=<unix-seconds>, sig=<hex>
+ *   Authorization: X402-HMAC keyId=<id>, ts=<unix-seconds>, nonce=<hex>, sig=<hex>
  *
- *   signing string = `${keyId}\n${ts}\n${METHOD}\n${path}\n${sha256hex(body)}`
+ *   signing string = `${keyId}\n${ts}\n${nonce}\n${METHOD}\n${path}\n${sha256hex(body)}`
  *   sig            = hex( HMAC_SHA256(secret, signing string) )
  *
  * Hashing the body (rather than signing it directly) keeps the signing string
  * a fixed small size and lets the verifier compare against the raw bytes it
  * already buffered.
+ *
+ * Note: the used-nonce store is per-authenticator-instance. In Node (single
+ * process) that's authoritative; in Workers it is per-isolate best-effort — the
+ * timestamp skew window still bounds the blast radius, and the DO remains the
+ * final serialization point for broadcasts. See docs/threat-model.md.
  */
 
 const SCHEME = "X402-HMAC"
@@ -89,6 +97,7 @@ export type AuthFailureDetail =
   | "bad_timestamp"
   | "timestamp_skew"
   | "signature_mismatch"
+  | "replayed_nonce"
 
 /** Outcome of authenticating one request. */
 export type AuthResult =
@@ -98,10 +107,11 @@ export type AuthResult =
 interface ParsedAuthHeader {
   keyId: string
   ts: string
+  nonce: string
   sig: string
 }
 
-/** Parse the `X402-HMAC keyId=..., ts=..., sig=...` Authorization header. */
+/** Parse the `X402-HMAC keyId=..., ts=..., nonce=..., sig=...` Authorization header. */
 function parseAuthHeader(header: string): ParsedAuthHeader | null {
   if (!header.startsWith(`${SCHEME} `)) return null
   const params = header.slice(SCHEME.length + 1)
@@ -113,8 +123,8 @@ function parseAuthHeader(header: string): ParsedAuthHeader | null {
     const v = part.slice(eq + 1).trim()
     if (k) out[k] = v
   }
-  if (!out.keyId || !out.ts || !out.sig) return null
-  return { keyId: out.keyId, ts: out.ts, sig: out.sig }
+  if (!out.keyId || !out.ts || !out.nonce || !out.sig) return null
+  return { keyId: out.keyId, ts: out.ts, nonce: out.nonce, sig: out.sig }
 }
 
 /** Lowercase hex of SHA-256(bytes) using Web Crypto (Node 20+ and Workers). */
@@ -180,6 +190,13 @@ export interface HmacAuthenticatorOptions {
 export class HmacAuthenticator {
   private readonly keysById: Map<string, string>
   private readonly skewSeconds: number
+  /**
+   * Used `(keyId, nonce)` → expiry (unix seconds). A nonce is remembered for
+   * the skew window (plus a small margin) so an identical request captured on
+   * the wire can't be replayed while its timestamp is still in-window.
+   * Entries are lazily GC'd on insert. Per-instance (per-isolate in Workers).
+   */
+  private readonly seenNonces = new Map<string, number>()
 
   constructor(opts: HmacAuthenticatorOptions) {
     this.keysById = new Map(opts.keys.map((k) => [k.keyId, k.secret]))
@@ -230,6 +247,7 @@ export class HmacAuthenticator {
     const signingString = [
       parsed.keyId,
       parsed.ts,
+      parsed.nonce,
       input.method.toUpperCase(),
       input.path,
       bodyHash,
@@ -242,7 +260,26 @@ export class HmacAuthenticator {
       return fail("signature_mismatch")
     }
 
+    // Replay guard: reject a (keyId, nonce) we've already accepted. Only done
+    // after the signature checks out, so an attacker can't pollute the store
+    // with unsigned nonces. GC expired entries first (bounded by skew window).
+    this.gcSeenNonces(nowSeconds)
+    const seenKey = `${parsed.keyId}:${parsed.nonce}`
+    if (this.seenNonces.has(seenKey)) {
+      return fail("replayed_nonce")
+    }
+    // Remember until this request's timestamp can no longer be in-window.
+    this.seenNonces.set(seenKey, nowSeconds + this.skewSeconds + 1)
+
     return { ok: true, keyId: parsed.keyId }
+  }
+
+  /** Drop used-nonce entries whose skew window has fully elapsed. */
+  private gcSeenNonces(nowSeconds: number): void {
+    if (this.seenNonces.size === 0) return
+    for (const [k, expiry] of this.seenNonces) {
+      if (expiry <= nowSeconds) this.seenNonces.delete(k)
+    }
   }
 }
 
@@ -257,16 +294,27 @@ export async function signRequest(args: {
   path: string
   body: Uint8Array
   now?: Date
+  /** Override the per-request nonce (tests). Defaults to a random 16-byte hex. */
+  nonce?: string
 }): Promise<string> {
   const ts = Math.floor((args.now ?? new Date()).getTime() / 1000).toString()
+  const nonce = args.nonce ?? randomNonceHex()
   const bodyHash = await sha256Hex(args.body)
   const signingString = [
     args.key.keyId,
     ts,
+    nonce,
     args.method.toUpperCase(),
     args.path,
     bodyHash,
   ].join("\n")
   const sig = await hmacSha256Hex(args.key.secret, signingString)
-  return `${SCHEME} keyId=${args.key.keyId}, ts=${ts}, sig=${sig}`
+  return `${SCHEME} keyId=${args.key.keyId}, ts=${ts}, nonce=${nonce}, sig=${sig}`
+}
+
+/** 16 random bytes as lowercase hex. Web Crypto — works in Node 20+ and Workers. */
+function randomNonceHex(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return bufToHex(bytes)
 }
