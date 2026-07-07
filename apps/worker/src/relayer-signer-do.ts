@@ -63,12 +63,43 @@ export interface DoBroadcastInput {
 export interface DoBroadcastOk {
   ok: true
   txHash: Hex
+  /**
+   * true when this (payer, nonce) was already broadcast by a previous request
+   * and the stored txHash is being replayed instead of re-broadcasting.
+   * Cross-isolate safe: the record lives in DO storage, not isolate memory.
+   */
+  replayed?: boolean
 }
 export interface DoBroadcastFail {
   ok: false
   reason: string
 }
 export type DoBroadcastResult = DoBroadcastOk | DoBroadcastFail
+
+/**
+ * Persistent record of a broadcast, kept in DO storage. This is the
+ * cross-isolate idempotency layer the in-memory NonceCache cannot provide:
+ * a retry landing on a different isolate (or after an isolate restart) still
+ * finds the txHash here instead of double-broadcasting / returning a bogus
+ * failure for an already-settled payment.
+ *
+ * Records are pruned after SETTLE_RECORD_TTL_MS — beyond that the contract's
+ * `authorizationState` is the (permanent) source of truth.
+ */
+export interface SettleRecord {
+  txHash: Hex
+  broadcastAt: number
+  chainId: number
+  payer: string
+  nonce: string
+}
+
+const SETTLE_RECORD_TTL_MS = 72 * 60 * 60 * 1000
+const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
+
+function settleRecordKey(payer: string, nonce: string): string {
+  return `settle:${payer.toLowerCase()}:${nonce.toLowerCase()}`
+}
 
 /**
  * One DO instance per (chain, env). The instance id should encode the chain
@@ -92,6 +123,35 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     return this.cachedAccount
   }
 
+  /** Last opportunistic prune (isolate-local; prune itself reads storage). */
+  private lastPruneAt = 0
+
+  /**
+   * Look up the persistent broadcast record for (payer, nonce). Used by the
+   * POST /settle-status endpoint so the EC can ask "was this authorization
+   * ever broadcast, and with which tx?" after a timed-out settle call.
+   * Returns null when unknown — note records expire after 72h, so null does
+   * NOT prove no broadcast; on-chain `authorizationState` is authoritative.
+   */
+  async getSettleRecord(payer: string, nonce: string): Promise<SettleRecord | null> {
+    const record = await this.ctx.storage.get<SettleRecord>(settleRecordKey(payer, nonce))
+    return record ?? null
+  }
+
+  /** Delete records older than SETTLE_RECORD_TTL_MS. Volume is low (one key
+   * per settle), so a full prefix list is fine. */
+  private async pruneSettleRecords(): Promise<void> {
+    const now = Date.now()
+    const entries = await this.ctx.storage.list<SettleRecord>({ prefix: "settle:" })
+    const stale: string[] = []
+    for (const [key, record] of entries) {
+      if (now - record.broadcastAt > SETTLE_RECORD_TTL_MS) stale.push(key)
+    }
+    if (stale.length > 0) {
+      await this.ctx.storage.delete(stale)
+    }
+  }
+
   /**
    * Broadcast a transferWithAuthorization tx, holding the DO lock just long
    * enough to serialize nonce assignment and the actual `eth_sendRawTransaction`
@@ -100,6 +160,28 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   async broadcast(input: DoBroadcastInput): Promise<DoBroadcastResult> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       try {
+        // Idempotency gate *inside the lock*: if this (payer, nonce) was
+        // already broadcast — by any isolate, any time in the last 72h —
+        // return the recorded txHash instead of broadcasting again. This
+        // closes the double-broadcast window the in-memory NonceCache leaves
+        // open (retry on a different isolate while tx #1 is still in the
+        // mempool → second broadcast → revert + a spurious failure response
+        // for a payment that actually succeeded).
+        const key = settleRecordKey(input.payer, input.nonce)
+        const existing = await this.ctx.storage.get<SettleRecord>(key)
+        if (existing) {
+          console.info(
+            JSON.stringify({
+              ev: "broadcast.replayed",
+              chainId: input.chainId,
+              payer: input.payer,
+              nonce: input.nonce,
+              txHash: existing.txHash,
+            }),
+          )
+          return { ok: true, txHash: existing.txHash, replayed: true }
+        }
+
         // Re-check the authorization's time window *inside the lock*, right
         // before broadcast. The parent Worker already verified the payment,
         // but `blockConcurrencyWhile` can queue this callback behind other
@@ -144,6 +226,42 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
           account,
           chain: wallet.chain,
         })
+
+        // Persist the broadcast record BEFORE returning — the write is inside
+        // the lock, so a concurrent retry can never observe "no record" after
+        // a broadcast happened. Storage failure is deliberately non-fatal:
+        // the tx is already out, and failing the response here would make the
+        // caller believe the settle failed.
+        await this.ctx.storage
+          .put(key, {
+            txHash,
+            broadcastAt: Date.now(),
+            chainId: input.chainId,
+            payer: input.payer.toLowerCase(),
+            nonce: input.nonce.toLowerCase(),
+          } satisfies SettleRecord)
+          .catch((pe) => {
+            console.error(
+              JSON.stringify({
+                ev: "broadcast.record_put_failed",
+                chainId: input.chainId,
+                nonce: input.nonce,
+                txHash,
+                error: pe instanceof Error ? pe.message : String(pe),
+              }),
+            )
+          })
+
+        // Opportunistic prune outside the response path.
+        if (Date.now() - this.lastPruneAt > PRUNE_INTERVAL_MS) {
+          this.lastPruneAt = Date.now()
+          this.ctx.waitUntil(
+            this.pruneSettleRecords().catch((pe) =>
+              console.error("[RelayerSignerDO] prune failed:", pe),
+            ),
+          )
+        }
+
         return { ok: true, txHash }
       } catch (e) {
         // Always log the full exception — the wire `errorReason` is a coarse

@@ -16,6 +16,12 @@ export default defineWorkersConfig({
           // Keep tests deterministic — disable the cron trigger.
           compatibilityDate: "2026-05-01",
           compatibilityFlags: ["nodejs_compat"],
+          // loadConfig は staging/production で FACILITATOR_HMAC_KEYS を必須に
+          // する (HMAC auth コミット以降)。テストは認証なしのスモークなので
+          // development として起動する。
+          bindings: {
+            NODE_ENV: "development",
+          },
         },
       },
     },

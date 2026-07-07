@@ -25,6 +25,7 @@ import { cors } from "hono/cors"
 import { logger as honoLogger } from "hono/logger"
 import {
   X402Error,
+  FACILITATOR_INTERNAL_ERROR_CODES,
   caip2ToEvmChainId,
   settleRequestSchema,
   verifyRequestSchema,
@@ -66,6 +67,20 @@ export interface AppDeps {
    * means GET /discovery/resources returns an empty catalog.
    */
   discovery?: { resources: DiscoveryResource[] }
+  /**
+   * Persistent broadcast-record lookup backing POST /settle-status. In the
+   * Workers host this reads the per-chain RelayerSignerDO's storage; the Node
+   * host may omit it (the endpoint then answers from the in-memory NonceCache
+   * only). Lets a caller whose /settle call timed out ask "was this
+   * authorization broadcast, and with which tx?" instead of blindly retrying.
+   */
+  settleRecords?: {
+    get(
+      chainId: number,
+      payer: string,
+      nonce: string,
+    ): Promise<{ txHash: string; broadcastAt: number } | null>
+  }
 }
 
 export function createApp(deps: AppDeps) {
@@ -131,6 +146,7 @@ export function createApp(deps: AppDeps) {
   }
   app.use("/verify", authMiddleware)
   app.use("/settle", authMiddleware)
+  app.use("/settle-status", authMiddleware)
   app.use("/supported", authMiddleware)
 
   app.get("/health", (c) => c.json({ ok: true }))
@@ -180,7 +196,7 @@ export function createApp(deps: AppDeps) {
         ? { isValid: true, payer: result.payer }
         : {
             isValid: false,
-            invalidReason: shortReason(result.reason),
+            invalidReason: verifyFailureCode(result.reason),
             ...(result.payer ? { payer: result.payer } : {}),
           }
       return c.json(response)
@@ -197,16 +213,18 @@ export function createApp(deps: AppDeps) {
       const payer = parsed.paymentPayload.payload.authorization.from as Address
       const valueAtomic = BigInt(parsed.paymentPayload.payload.authorization.value)
 
-      // 1) Rate limit before any RPC work.
-      deps.rateLimiter.consume(payer, valueAtomic)
-
       const chainId = caip2ToEvmChainId(parsed.paymentRequirements.network)
       const nonce = parsed.paymentPayload.payload.authorization.nonce
 
-      // 2) Nonce cache — if we already settled this exact triple within the
+      // 1) Nonce cache — if we already settled this exact triple within the
       //    cache window, return the cached tx hash without re-broadcasting.
       //    Truth is on-chain (`_authorizationStates`); this just saves gas
       //    and a round-trip when callers retry.
+      //
+      //    Checked BEFORE the rate limiter on purpose: an idempotent replay
+      //    performs zero on-chain work, so it must not consume rate-limit
+      //    budget — otherwise a legitimately retrying payer can lock
+      //    themselves out of their own next payment (audit Med-4).
       const cached = deps.nonceCache.get(chainId, payer, nonce)
       if (cached?.settled && cached.txHash) {
         const body: SettlementResponse = {
@@ -218,6 +236,9 @@ export function createApp(deps: AppDeps) {
         }
         return c.json(body)
       }
+
+      // 2) Rate limit before any RPC work.
+      deps.rateLimiter.consume(payer, valueAtomic)
 
       // 3) Balance gate — refuse to settle when the relayer is critically low.
       const refuseForBalance = deps.balanceCache?.isCritical(chainId) ?? false
@@ -243,7 +264,7 @@ export function createApp(deps: AppDeps) {
       if (!result.verify.ok) {
         const body: SettlementResponse = {
           success: false,
-          errorReason: shortReason(result.verify.reason),
+          errorReason: verifyFailureCode(result.verify.reason),
           payer: result.verify.payer ?? payer,
           transaction: "",
           network: parsed.paymentRequirements.network,
@@ -297,6 +318,57 @@ export function createApp(deps: AppDeps) {
     }
   })
 
+  // Broadcast-record lookup for callers whose /settle call timed out or got
+  // an ambiguous failure. Body: { network, payer, nonce } (POST so the HMAC
+  // signature covers the parameters — GET query strings are not signed).
+  //
+  // Response: { known: true, txHash, broadcastAt } when a broadcast record
+  // (DO storage, 72h retention) or a cached settle (NonceCache) exists;
+  // { known: false } otherwise. IMPORTANT: known:false is NOT proof that no
+  // funds moved — records expire, and a tx may exist from before this
+  // feature deployed. The contract's `authorizationState` remains the
+  // authoritative source; this endpoint's value is returning the txHash,
+  // which authorizationState cannot.
+  app.post("/settle-status", async (c) => {
+    try {
+      const json = (await c.req.json()) as {
+        network?: unknown
+        payer?: unknown
+        nonce?: unknown
+      }
+      const network = typeof json.network === "string" ? json.network : ""
+      const payer = typeof json.payer === "string" ? json.payer : ""
+      const nonce = typeof json.nonce === "string" ? json.nonce : ""
+      if (
+        !/^0x[0-9a-fA-F]{40}$/.test(payer) ||
+        !/^0x[0-9a-fA-F]{64}$/.test(nonce)
+      ) {
+        return c.json({ error: "invalid payer or nonce" }, 400)
+      }
+      const chainId = caip2ToEvmChainId(network)
+
+      const cached = deps.nonceCache.get(chainId, payer as Address, nonce)
+      if (cached?.settled && cached.txHash) {
+        return c.json({ known: true, txHash: cached.txHash, source: "cache" })
+      }
+      const record = (await deps.settleRecords?.get(chainId, payer, nonce)) ?? null
+      if (record) {
+        return c.json({
+          known: true,
+          txHash: record.txHash,
+          broadcastAt: record.broadcastAt,
+          source: "durable",
+        })
+      }
+      return c.json({ known: false })
+    } catch (e) {
+      if (e instanceof X402Error) {
+        return c.json({ error: e.code }, asStatus(e.httpStatus))
+      }
+      return c.json({ error: "invalid request" }, 400)
+    }
+  })
+
   app.get("/", (c) =>
     c.json({
       name: "jpyc-x402-facilitator",
@@ -312,6 +384,23 @@ function shortReason(reason: string): string {
   const colon = reason.indexOf(":")
   if (colon > 0 && colon < 80) return reason.slice(0, colon)
   return reason
+}
+
+/**
+ * Map a verify-failure reason to its wire code.
+ *
+ * "nonce already used" gets its own code (`authorization_already_used`)
+ * instead of collapsing into `invalid_exact_evm_payload_signature`: the two
+ * are opposites for the caller. A bad signature means no funds ever moved;
+ * a consumed nonce means funds ALREADY moved (this settle, or an earlier one
+ * whose response was lost). Callers that restore reservations / re-prompt
+ * signatures on "signature invalid" must never do so on "already used".
+ */
+export function verifyFailureCode(reason: string): string {
+  if (reason.includes("nonce already used")) {
+    return FACILITATOR_INTERNAL_ERROR_CODES.authorization_already_used
+  }
+  return shortReason(reason)
 }
 
 type ContentfulStatus = 200 | 400 | 402 | 429 | 500 | 503

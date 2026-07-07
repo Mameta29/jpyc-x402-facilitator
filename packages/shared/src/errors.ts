@@ -37,6 +37,15 @@ export const FACILITATOR_INTERNAL_ERROR_CODES = {
   facilitator_rate_limited: "facilitator_rate_limited",
   facilitator_replayed_nonce: "facilitator_replayed_nonce",
   facilitator_chain_unavailable: "facilitator_chain_unavailable",
+  /**
+   * Wire code: the authorization's nonce is already consumed on-chain — this
+   * payment (or another with the same nonce) has already moved funds.
+   * Deliberately distinct from `invalid_exact_evm_payload_signature`: a caller
+   * that treats "verify failed" as "no funds moved, safe to re-sign" would
+   * turn a lost-response retry into a double charge. The JPYC EC keys its
+   * settlement-state-unknown handling on this distinction.
+   */
+  authorization_already_used: "authorization_already_used",
 } as const
 
 export type FacilitatorInternalErrorCode =

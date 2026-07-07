@@ -139,6 +139,21 @@ export default {
       nodeEnv: bundle.config.nodeEnv,
       authenticator: bundle.authenticator,
       discovery: parseDiscoveryConfig(env.X402_DISCOVERY_RESOURCES) ?? undefined,
+      // POST /settle-status を per-chain RelayerSignerDO の永続記録に接続する。
+      // NonceCache (isolate ローカル) と違い、isolate を跨いでも 72h 以内の
+      // broadcast 済み txHash を返せる。
+      settleRecords: {
+        get: async (chainId, payer, nonce) => {
+          const id = env.RELAYER.idFromName(`chain-${chainId}`)
+          const stub = env.RELAYER.get(id) as unknown as {
+            getSettleRecord: (
+              payer: string,
+              nonce: string,
+            ) => Promise<{ txHash: string; broadcastAt: number } | null>
+          }
+          return await stub.getSettleRecord(payer, nonce)
+        },
+      },
     })
     return app.fetch(request, env as unknown as Record<string, unknown>, ctx)
   },

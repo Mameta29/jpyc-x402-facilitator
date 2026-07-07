@@ -47,16 +47,32 @@ a tx is stuck pending for >5 min:
 
 ## Replayed authorizations
 
-Customers and AI agents occasionally retry the same authorization. The
-facilitator's in-memory `NonceCache` short-circuits replays within a 5-min
-window — the second `/settle` returns `success: true` with the cached tx
-hash without touching RPC.
+Customers and AI agents occasionally retry the same authorization. Three
+layers handle replays, cheapest first:
 
-If the replay arrives after the cache window, the contract layer takes
-over: the second broadcast reverts with `FiatTokenV2: authorization is
-used` (or equivalent). The facilitator surfaces this as
-`success: false, errorReason: invalid_transaction_state`. Cost: one
-revert worth of gas, no double-spend, no money moved twice.
+1. **In-memory `NonceCache`** (per-isolate, 5-min TTL): the second `/settle`
+   returns `success: true` with the cached tx hash without touching RPC.
+   Checked *before* the rate limiter, so an idempotent replay never consumes
+   the payer's rate-limit budget.
+2. **`RelayerSignerDO` storage** (per-chain, 72h retention, cross-isolate):
+   every broadcast writes a `(payer, nonce) → txHash` record inside the DO
+   lock. A replay that misses the isolate-local cache — different isolate,
+   isolate restart — hits this record inside `broadcast()` and returns
+   `success: true` with the recorded tx hash instead of re-broadcasting.
+   This is what makes retry-after-lost-response safe: previously such a
+   retry could double-broadcast (one revert's gas) or, worse, report
+   `success: false` for a payment that actually went through.
+3. **The contract** (permanent): anything that slips past both records
+   reverts with `FiatTokenV2: authorization is used`, surfaced as
+   `success: false, errorReason: invalid_transaction_state`. A verify-stage
+   detection of a consumed nonce is surfaced as
+   `errorReason: authorization_already_used` — callers must treat that as
+   "funds already moved", never as a clean failure.
+
+Callers can also ask explicitly: `POST /settle-status` (HMAC-authed, body
+`{network, payer, nonce}`) returns `{known: true, txHash}` when layer 1 or 2
+has a record. `known: false` is NOT proof of no broadcast (records expire) —
+on-chain `authorizationState` stays authoritative.
 
 ---
 
