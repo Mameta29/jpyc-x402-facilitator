@@ -56,6 +56,17 @@ jobs:
 
       - run: pnpm --filter @jpyc-x402/worker... build
 
+      - name: Set optional integrator authentication keys
+        working-directory: apps/worker
+        run: |
+          if [ -n "$FACILITATOR_EXTRA_HMAC_KEYS" ]; then
+            printf '%s' "$FACILITATOR_EXTRA_HMAC_KEYS" | pnpm exec wrangler secret put FACILITATOR_EXTRA_HMAC_KEYS --env production
+          fi
+        env:
+          FACILITATOR_EXTRA_HMAC_KEYS: ${{ secrets.FACILITATOR_EXTRA_HMAC_KEYS }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy to Cloudflare (production)
         uses: cloudflare/wrangler-action@v3
         with:
