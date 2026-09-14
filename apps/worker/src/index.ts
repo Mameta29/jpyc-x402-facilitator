@@ -45,6 +45,7 @@ import {
 import { caip2ToEvmChainId } from "@jpyc-x402/shared"
 import type { Hex } from "viem"
 import type { WorkerEnv } from "./env"
+import { configEnvironment } from "./config-env"
 import { workerRpcResolver } from "./rpc"
 import { WorkerSettleRunner } from "./worker-settle-runner"
 
@@ -91,9 +92,8 @@ interface CtorBundle {
 }
 
 function buildBundle(env: WorkerEnv): CtorBundle {
-  // loadConfig reads from a Record<string,string|undefined>; Workers env is
-  // already shaped that way for vars/secrets, so we coerce.
-  const config = loadConfig(env as unknown as Record<string, string | undefined>)
+  // Only string vars/secrets belong in the shared server configuration.
+  const config = loadConfig(configEnvironment(env))
   const rpcResolver = workerRpcResolver(env)
 
   // The Worker's relayer provider is the same private key passed via secret;

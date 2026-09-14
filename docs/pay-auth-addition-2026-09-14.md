@@ -1,0 +1,9 @@
+# Pay用認証キーの追加
+
+Payの本番配備で、既存の暗号化された`FACILITATOR_HMAC_KEYS`を取り出したり置き換えたりせず、別クライアントのキーを追加できるようにした。
+
+Workerは任意のSecret `FACILITATOR_EXTRA_HMAC_KEYS`を既存のキー一覧に加えて読み込む。形式は既存と同じ`keyId:secret`のカンマ区切り。ID重複時の起動拒否、認証なしでの本番起動拒否は維持する。既存のEC・POS用キー、リレイヤー秘密鍵、RPC設定、Durable Objectの名前空間には変更を加えない。
+
+本番の手動配備ワークフローは、同名のGitHub Actions Secretが設定されている場合のみ追加キーを同期する。値が空なら現在のWorker Secretを保持する。追加キーの削除・ローテーション時はGitHub側とWorker側を両方更新する。PayのVercel `FACILITATOR_HMAC_KEY`には追加リスト内のPay用1組だけを設定する。
+
+回帰確認: 既存の複数キーの維持、新規キーの読込、追加Secretなしの後方互換、重複IDとキー欠落の拒否を自動テストする。配備後に既存stagingキーとPay本番キーの署名付き`GET /supported`を確認する。この操作は資金を動かさない。
