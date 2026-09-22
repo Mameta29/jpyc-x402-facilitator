@@ -28,6 +28,22 @@ const MIN_ETHEREUM_PRIORITY_FEE = 100_000_000n // 0.1 gwei; paid by the relayer.
 function ethereumPaymentChain(chain: Chain): Chain {
   return {
     ...chain,
+    // Modern RPCs can fill the transaction in one call, bypassing fees hooks.
+    // Enforce the floor after both preparation paths, without another RPC.
+    prepareTransactionRequest: [
+      async (request) => {
+        const tip = request.maxPriorityFeePerGas
+        const cap = request.maxFeePerGas
+        if (typeof tip !== "bigint" || typeof cap !== "bigint" || tip >= MIN_ETHEREUM_PRIORITY_FEE)
+          return request
+        return {
+          ...request,
+          maxPriorityFeePerGas: MIN_ETHEREUM_PRIORITY_FEE,
+          maxFeePerGas: cap + MIN_ETHEREUM_PRIORITY_FEE - tip,
+        }
+      },
+      { runAt: ["afterFillParameters"] },
+    ],
     fees: {
       ...chain.fees,
       baseFeeMultiplier: 2,
