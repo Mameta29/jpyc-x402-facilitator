@@ -34,7 +34,7 @@
   "env": {
     "staging": {
       "name": "jpyc-x402-facilitator-staging",
-      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
+      "placement": { "region": "aws:ap-northeast-1" },
       "routes": [
         {
           "pattern": "facilitator-staging.jpyc-service.com/*",
@@ -61,7 +61,7 @@
     },
     "production": {
       "name": "jpyc-x402-facilitator-production",
-      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
+      "placement": { "region": "aws:ap-northeast-1" },
       "routes": [
         {
           "pattern": "facilitator.jpyc-service.com/*",
