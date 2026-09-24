@@ -220,7 +220,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         // Legacy records are retained and remain readable during rolling deploy.
         if (record.rawTransaction && !["confirmed", "reverted"].includes(record.state ?? ""))
           await this.sendRecorded(key, record)
-        return { ok: true, txHash: record.txHash, replayed: true, timeline: record.timeline }
+        const observed = await this.ctx.storage.get<DurableSettleRecord>(key) ?? record
+        return { ok: true, txHash: observed.txHash, replayed: true, timeline: observed.timeline }
       }
       const timeError = checkTimeWindow(
         BigInt(input.validAfter),
@@ -325,7 +326,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         return row
       })
       await this.sendRecorded(key, record)
-      return { ok: true, txHash: record.txHash, timeline: record.timeline }
+      const observed = await this.ctx.storage.get<DurableSettleRecord>(key) ?? record
+      return { ok: true, txHash: observed.txHash, timeline: observed.timeline }
     } catch (error) {
       // Never return RPC error text: it can include credentials or signatures.
       const reason =

@@ -73,6 +73,10 @@ describe("durable relayer journal under concurrency and faults", () => {
       const cases = Array.from({ length: 64 }, (_, n) => input(n + 1))
       const results = await Promise.all(cases.map((payment) => instance.broadcast(payment)))
       expect(results.every((result) => result.ok)).toBe(true)
+      for (const result of results) {
+        expect(result.ok && result.timeline?.broadcastAt).toBeTypeOf("number")
+        if (result.ok) expect(result.timeline!.broadcastAt).toBeGreaterThanOrEqual(result.timeline!.broadcastStartedAt!)
+      }
       expect(new Set(nonces).size).toBe(64)
       expect(Math.min(...nonces)).toBe(7)
       expect(Math.max(...nonces)).toBe(70)
