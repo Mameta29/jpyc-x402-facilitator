@@ -20,6 +20,9 @@ export interface WorkerEnv {
 
   // ── Secrets (wrangler secret put) ──────────────────────────────────────
   RELAYER_PRIVATE_KEY: string
+  /** Fixed integrator callback; never accepted from customer payloads. */
+  SETTLEMENT_NOTIFY_URL?: string
+  SETTLEMENT_NOTIFY_SECRET?: string
   // HMAC request-auth keys: comma-separated `keyId:secret` pairs guarding
   // /verify, /settle, /supported. Required in staging/production — loadConfig
   // refuses to boot without it. Set via `wrangler secret put`.

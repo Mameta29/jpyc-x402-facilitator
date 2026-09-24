@@ -17,7 +17,8 @@
   "vars": {
     "NODE_ENV": "staging",
     "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
-    "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
+    "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
+    "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
   },
   "durable_objects": {
     "bindings": [
@@ -43,7 +44,8 @@
       "vars": {
         "NODE_ENV": "staging",
         "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
-        "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
+        "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
+        "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
       },
       "durable_objects": {
         "bindings": [
@@ -69,7 +71,8 @@
       "vars": {
         "NODE_ENV": "production",
         "ENABLED_NETWORKS": "eip155:1,eip155:137,eip155:43114,eip155:8217",
-        "CORS_ORIGINS": "https://ec.jpyc-service.com"
+        "CORS_ORIGINS": "https://ec.jpyc-service.com",
+        "SETTLEMENT_NOTIFY_URL": "https://ec.jpyc-service.com/api/internal/settlement-observed"
       },
       "durable_objects": {
         "bindings": [

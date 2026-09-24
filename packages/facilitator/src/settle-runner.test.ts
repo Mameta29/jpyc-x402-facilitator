@@ -17,6 +17,7 @@ function setup() {
     status: "success",
     transactionHash: hash,
     blockNumber: 100n,
+    blockHash: nonce,
     gasUsed: 100n,
     effectiveGasPrice: 10n,
     logs: [
@@ -37,7 +38,7 @@ function setup() {
   const wait = vi.fn().mockResolvedValue(receipt)
   const client = {
     waitForTransactionReceipt: wait,
-    getBlock: vi.fn().mockResolvedValue({ timestamp: 1000n }),
+    getBlock: vi.fn().mockResolvedValue({ timestamp: 1000n, hash: nonce }),
   } as unknown as PublicClient
   return { receipt, wait, client }
 }
@@ -67,6 +68,13 @@ describe("receipt verification outside the broadcast lock", () => {
         { receiptTimeoutMs: 8000 },
       ),
     ).toEqual({ ok: false, reason: "receipt_pending", txHash: hash })
+  })
+  it("does not report an orphaned reverted receipt as an on-chain failure", async () => {
+    const { client, receipt } = setup()
+    receipt.status = "reverted"
+    vi.mocked(client.getBlock).mockResolvedValue({ hash, timestamp: 1000n } as never)
+    expect(await waitAndVerifyTransfer(client, 137, hash, { payer, payTo, valueAtomic: 0n, nonce }))
+      .toMatchObject({ ok: false, reason: "receipt_block_mismatch" })
   })
   it.each(["payer", "nonce", "token", "transfer", "hash", "revert", "removed", "malformed"])(
     "rejects mismatched %s evidence",

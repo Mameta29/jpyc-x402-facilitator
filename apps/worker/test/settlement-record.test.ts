@@ -1,3 +1,4 @@
+import "./durable-test-clock"
 import { env, runInDurableObject } from "cloudflare:test"
 import { describe, it, expect } from "vitest"
 import type { WorkerEnv } from "../src/env"

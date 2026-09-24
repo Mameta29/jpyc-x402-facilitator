@@ -3,8 +3,8 @@
  *
  * The Hono app shouldn't care whether settle runs:
  *   - directly in-process (Node, single-machine: Fly max=1, Render Starter)
- *   - through a Cloudflare Durable Object (Workers, where DO `blockConcurrencyWhile`
- *     gives us strong nonce serialization across simultaneous Workers requests)
+ *   - through a Cloudflare Durable Object (Workers, where a storage transaction
+ *     allocates a nonce and journals signed bytes before any broadcast)
  *
  * Both paths satisfy this interface. The app calls `settle(...)` and gets back
  * a result; the implementation owns the concurrency story.
@@ -18,14 +18,11 @@
  *   `blockConcurrencyWhile` callback has a hard 30-second timeout — the
  *   Durable Object is *reset* if exceeded.
  *
- *   Splitting the work is safe because viem's writeContract internally calls
- *   `getTransactionCount({ blockTag: "pending" })` which counts broadcast-but-
- *   unmined txs. Once we've broadcast tx N (next nonce N+1 is reserved on
- *   the relayer), the next settle can broadcast in parallel without nonce
- *   conflict — even if tx N hasn't mined yet.
+ *   The Workers path reserves nonces durably; RPC pending counts alone are not
+ *   sufficient when a send response is lost or concurrent requests overlap.
  *
  *   So the SettleRunner contract is:
- *     1. broadcast() — must be serialised per (chainId, signer) for nonce safety
+ *     1. broadcast() — must allocate nonces atomically per (chainId, signer)
  *     2. waitForReceipt() — fully concurrent
  */
 
@@ -80,7 +77,7 @@ export type BroadcastResult = BroadcastOk | BroadcastFail
  * - InProcessSettleRunner (Node) is the trivial implementation that holds an
  *   in-process mutex per chainId.
  * - DurableObjectSettleRunner (Workers) forwards `broadcast()` to a DO that
- *   uses `ctx.blockConcurrencyWhile` for serialization, while
+ *   uses durable transactions for local nonce allocation and signing, while
  *   `waitForReceipt()` runs back in the parent Worker for parallelism.
  */
 export interface SettleRunner {
@@ -208,11 +205,21 @@ export async function waitAndVerifyTransfer(
     return { ok: false, reason: opts.receiptTimeoutMs ? "receipt_pending" : `receipt wait failed: ${(e as Error).message}`, txHash }
   }
 
-  if (receipt.status !== "success") {
-    return { ok: false, reason: "tx reverted on-chain", txHash }
-  }
   if (receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
     return { ok: false, reason: "receipt transaction hash mismatch", txHash }
+  }
+  let blockTimestampSec = 0n
+  try {
+    const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
+    if (block.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()) {
+      return { ok: false, reason: "receipt_block_mismatch", txHash }
+    }
+    blockTimestampSec = block.timestamp
+  } catch {
+    return { ok: false, reason: "receipt_block_unavailable", txHash }
+  }
+  if (receipt.status !== "success") {
+    return { ok: false, reason: "tx reverted on-chain", txHash }
   }
 
   const matched = receipt.logs.some((log) => {
@@ -239,14 +246,6 @@ export async function waitAndVerifyTransfer(
     log.topics[1]?.toLowerCase() === `0x${expected.payer.slice(2).toLowerCase().padStart(64, "0")}` &&
     log.topics[2]?.toLowerCase() === expected.nonce!.toLowerCase())) {
     return { ok: false, reason: "AuthorizationUsed event did not match expected (payer, nonce)", txHash }
-  }
-
-  let blockTimestampSec = 0n
-  try {
-    const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
-    blockTimestampSec = block.timestamp
-  } catch {
-    // best effort
   }
 
   const gasCostWei = receipt.gasUsed * receipt.effectiveGasPrice
