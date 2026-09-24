@@ -202,6 +202,7 @@ export async function verifyExactPayment(
     validBefore,
     now(),
     BigInt(required.maxTimeoutSeconds),
+    submissionMarginSeconds(chainId),
   )
   if (timeError) {
     return { ok: false, reason: timeError, payer: a.from as Address }
@@ -309,6 +310,11 @@ export async function verifyExactPayment(
  */
 export const BLOCK_TIME_GRACE_SECONDS = 6n
 
+/** Submission budget after approval; not a finality guarantee. */
+export function submissionMarginSeconds(chainId: number): bigint {
+  return chainId === 1 || chainId === 11155111 ? 30n : 15n
+}
+
 /**
  * Pure time-window check for an EIP-3009 authorization. Returns an x402 error
  * code string if `now` is outside `[validAfter, validBefore)` (with the
@@ -332,11 +338,12 @@ export function checkTimeWindow(
   validBefore: bigint,
   now: bigint,
   maxTimeoutSeconds?: bigint,
+  submissionMargin: bigint = BLOCK_TIME_GRACE_SECONDS,
 ): string | null {
   if (now < validAfter) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after
   }
-  if (now + BLOCK_TIME_GRACE_SECONDS >= validBefore) {
+  if (now + submissionMargin >= validBefore) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before
   }
   // Upper bound: validBefore must not sit further than maxTimeoutSeconds

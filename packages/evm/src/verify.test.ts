@@ -24,6 +24,7 @@ import {
   BLOCK_TIME_GRACE_SECONDS,
   checkRequirementsMatch,
   checkTimeWindow,
+  submissionMarginSeconds,
   rejectHighS,
   splitSignatureComponents,
   verifyExactPayment,
@@ -251,6 +252,21 @@ describe("splitSignatureComponents", () => {
 describe("checkTimeWindow", () => {
   const AFTER = 1_000n
   const BEFORE = 2_000n
+
+  it.each([[1, 30], [11155111, 30], [137, 15], [8217, 15], [43114, 15]])(
+    "requires a broadcast margin on chain %i without widening the upper deadline",
+    (chainId, seconds) => {
+      const margin = submissionMarginSeconds(chainId)
+      expect(margin).toBe(BigInt(seconds))
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - margin, 180n, margin)).toBe(
+        "invalid_exact_evm_payload_authorization_valid_before",
+      )
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - margin - 1n, 180n, margin)).toBeNull()
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - 187n, 180n, margin)).toBe(
+        "invalid_exact_evm_payload_authorization_valid_before",
+      )
+    },
+  )
 
   it("returns null when now is comfortably inside the window", () => {
     expect(checkTimeWindow(AFTER, BEFORE, 1_500n)).toBeNull()

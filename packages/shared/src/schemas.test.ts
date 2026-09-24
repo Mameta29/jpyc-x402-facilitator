@@ -6,6 +6,7 @@ import {
   settlementResponseSchema,
   supportedResponseSchema,
   verifyRequestSchema,
+  settleRequestSchema,
 } from "./schemas.js"
 
 const validRequirements = {
@@ -36,6 +37,11 @@ const validPayload = {
 }
 
 describe("Zod schemas — happy paths", () => {
+  it.each([undefined, 1000, 8000, 120000])("accepts a receipt budget of %s, including legacy requests", receiptTimeoutMs => {
+    const request = { x402Version: 2, paymentPayload: validPayload, paymentRequirements: validRequirements, receiptTimeoutMs }
+    expect(settleRequestSchema.parse(request).receiptTimeoutMs).toBe(receiptTimeoutMs)
+  })
+
   it("accepts a valid PaymentRequirements", () => {
     expect(() => paymentRequirementsSchema.parse(validRequirements)).not.toThrow()
   })
@@ -88,6 +94,10 @@ describe("Zod schemas — happy paths", () => {
 })
 
 describe("Zod schemas — rejection paths", () => {
+  it.each([0, 999, 120001, 1000.5, "8000", null])("rejects invalid receipt budget %s", receiptTimeoutMs => {
+    expect(() => settleRequestSchema.parse({ x402Version: 2, paymentPayload: validPayload, paymentRequirements: validRequirements, receiptTimeoutMs })).toThrow()
+  })
+
   it("rejects unknown scheme", () => {
     expect(() =>
       paymentRequirementsSchema.parse({ ...validRequirements, scheme: "deferred" }),

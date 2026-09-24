@@ -40,6 +40,7 @@ import { privateKeyToAccount } from "viem/accounts"
 import {
   JPYC_ABI,
   checkTimeWindow,
+  submissionMarginSeconds,
   isRelayerGasExhaustionError,
   parseEip3009RevertReason,
   splitSignatureComponents,
@@ -47,6 +48,8 @@ import {
 } from "@jpyc-x402/evm"
 import { FACILITATOR_INTERNAL_ERROR_CODES, X402_ERROR_CODES, getJpycChain } from "@jpyc-x402/shared"
 import type { WorkerEnv } from "./env"
+import type { SettlementTimeline } from "@jpyc-x402/facilitator"
+import { authorizationFingerprint } from "./settlement-record"
 
 export interface DoBroadcastInput {
   chainId: number
@@ -58,6 +61,7 @@ export interface DoBroadcastInput {
   validBefore: string
   nonce: Hex
   signature: Hex
+  timeline?: SettlementTimeline
 }
 
 export interface DoBroadcastOk {
@@ -69,6 +73,7 @@ export interface DoBroadcastOk {
    * Cross-isolate safe: the record lives in DO storage, not isolate memory.
    */
   replayed?: boolean
+  timeline?: SettlementTimeline
 }
 export interface DoBroadcastFail {
   ok: false
@@ -92,6 +97,8 @@ export interface SettleRecord {
   chainId: number
   payer: string
   nonce: string
+  authorizationHash?: string
+  timeline?: SettlementTimeline
 }
 
 const SETTLE_RECORD_TTL_MS = 72 * 60 * 60 * 1000
@@ -138,6 +145,17 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     return record ?? null
   }
 
+  /** Persist the verified receipt observation independently of the broadcast
+   * lock. If the HTTP caller disconnects, /settle-status can still report it. */
+  async recordReceipt(payer: string, nonce: string, txHash: string, observation: { receiptObservedAt: number; blockTimestamp?: number }): Promise<void> {
+    await this.ctx.storage.transaction(async txn => {
+      const key = settleRecordKey(payer, nonce)
+      const existing = await txn.get<SettleRecord>(key)
+      if (!existing || existing.txHash.toLowerCase() !== txHash.toLowerCase()) return
+      await txn.put(key, { ...existing, timeline: { ...observation, ...existing.timeline } })
+    })
+  }
+
   /** Delete records older than SETTLE_RECORD_TTL_MS. Volume is low (one key
    * per settle), so a full prefix list is fine. */
   private async pruneSettleRecords(): Promise<void> {
@@ -160,6 +178,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   async broadcast(input: DoBroadcastInput): Promise<DoBroadcastResult> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       try {
+        const authorizationHash = authorizationFingerprint(input)
         // Idempotency gate *inside the lock*: if this (payer, nonce) was
         // already broadcast — by any isolate, any time in the last 72h —
         // return the recorded txHash instead of broadcasting again. This
@@ -170,6 +189,9 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         const key = settleRecordKey(input.payer, input.nonce)
         const existing = await this.ctx.storage.get<SettleRecord>(key)
         if (existing) {
+          if (existing.authorizationHash && existing.authorizationHash !== authorizationHash) {
+            return { ok: false, reason: "authorization_record_mismatch" }
+          }
           console.info(
             JSON.stringify({
               ev: "broadcast.replayed",
@@ -179,7 +201,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
               txHash: existing.txHash,
             }),
           )
-          return { ok: true, txHash: existing.txHash, replayed: true }
+          return { ok: true, txHash: existing.txHash, replayed: true, timeline: existing.timeline }
         }
 
         // Re-check the authorization's time window *inside the lock*, right
@@ -189,7 +211,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         // have passed. Catching it here avoids paying gas for a tx that the
         // EIP-3009 contract would revert with "authorization is expired".
         const now = BigInt(Math.floor(Date.now() / 1000))
-        const timeError = checkTimeWindow(BigInt(input.validAfter), BigInt(input.validBefore), now)
+        const timeError = checkTimeWindow(BigInt(input.validAfter), BigInt(input.validBefore), now, undefined, submissionMarginSeconds(input.chainId))
         if (timeError) {
           return { ok: false, reason: timeError }
         }
@@ -207,6 +229,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         })
 
         const { v, r, s } = splitSignatureComponents(input.signature)
+
+        const timeline: SettlementTimeline = { ...input.timeline, broadcastStartedAt: Date.now() }
 
         const txHash = await wallet.writeContract({
           address: chain.jpycAddress,
@@ -226,6 +250,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
           account,
           chain: wallet.chain,
         })
+        timeline.broadcastAt = Date.now()
 
         // Persist the broadcast record BEFORE returning — the write is inside
         // the lock, so a concurrent retry can never observe "no record" after
@@ -239,6 +264,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
             chainId: input.chainId,
             payer: input.payer.toLowerCase(),
             nonce: input.nonce.toLowerCase(),
+            authorizationHash,
+            timeline,
           } satisfies SettleRecord)
           .catch((pe) => {
             console.error(
@@ -247,7 +274,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
                 chainId: input.chainId,
                 nonce: input.nonce,
                 txHash,
-                error: pe instanceof Error ? pe.message : String(pe),
+                error: "storage_write_failed",
               }),
             )
           })
@@ -262,27 +289,18 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
           )
         }
 
-        return { ok: true, txHash }
+        return { ok: true, txHash, timeline }
       } catch (e) {
-        // Always log the full exception — the wire `errorReason` is a coarse
-        // code (and gets truncated at the first colon by the HTTP layer), so
-        // this structured line is the only place the real cause survives.
+        // Keep a classified diagnostic without logging signed calldata or
+        // credential-bearing RPC URLs that may occur in exception messages.
         const err = e as Record<string, unknown> & Error
         console.error(
           JSON.stringify({
             ev: "broadcast.error",
             chainId: input.chainId,
-            payer: input.payer,
-            nonce: input.nonce,
             name: err?.name,
-            message: err?.message,
-            shortMessage: (err as { shortMessage?: string })?.shortMessage,
-            metaMessages: (err as { metaMessages?: unknown })?.metaMessages,
-            cause:
-              err?.cause instanceof Error
-                ? { name: err.cause.name, message: err.cause.message }
-                : err?.cause,
-            stack: err?.stack,
+            // RPC exceptions can contain signed calldata and credential URLs.
+            reason: parseEip3009RevertReason(e) ?? "broadcast_rpc_error",
           }),
         )
         // The relayer wallet itself being out of gas is not a contract

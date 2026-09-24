@@ -32,6 +32,7 @@
 import {
   ExactEvmFacilitator,
   TRANSFER_EVENT_SIGNATURE,
+  AUTHORIZATION_USED_EVENT_SIGNATURE,
   splitSignatureComponents,
   type SettleResult,
   type VerifyResult,
@@ -87,7 +88,19 @@ export interface SettleRunner {
   settle(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
-  ): Promise<{ verify: VerifyResult; settle?: SettleResult }>
+    options?: { receiptTimeoutMs?: number },
+  ): Promise<{ verify: VerifyResult; settle?: SettleResult; timeline?: SettlementTimeline }>
+}
+
+/** Server timestamps (milliseconds), not customer-facing payment states. */
+export interface SettlementTimeline {
+  receivedAt?: number
+  verifiedAt?: number
+  queueEnteredAt?: number
+  broadcastStartedAt?: number
+  broadcastAt?: number
+  receiptObservedAt?: number
+  blockTimestamp?: number
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -105,6 +118,7 @@ export class InProcessSettleRunner implements SettleRunner {
   async settle(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
+    options?: { receiptTimeoutMs?: number },
   ): Promise<{ verify: VerifyResult; settle?: SettleResult }> {
     // facilitator.settle already does verify → broadcast → wait → verify
     // event, but it broadcasts and waits inside the same call. We need to
@@ -115,7 +129,7 @@ export class InProcessSettleRunner implements SettleRunner {
     // simpler code. Hosts that need higher throughput can implement their own
     // SettleRunner that splits broadcast/receipt explicitly.
     const chainId = caip2ToEvmChainId(requirements.network)
-    return await this.runSerialised(chainId, () => this.facilitator.settle(payload, requirements))
+    return await this.runSerialised(chainId, () => this.facilitator.settle(payload, requirements, options))
   }
 
   private async runSerialised<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
@@ -180,7 +194,7 @@ export async function waitAndVerifyTransfer(
   publicClient: PublicClient,
   chainId: number,
   txHash: Hex,
-  expected: { payer: Address; payTo: Address; valueAtomic: bigint },
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
   opts: { receiptTimeoutMs?: number } = {},
 ): Promise<SettleResult> {
   const chain = getJpycChain(chainId)
@@ -191,21 +205,25 @@ export async function waitAndVerifyTransfer(
       timeout: opts.receiptTimeoutMs ?? 120_000,
     })
   } catch (e) {
-    return { ok: false, reason: `receipt wait failed: ${(e as Error).message}`, txHash }
+    return { ok: false, reason: opts.receiptTimeoutMs ? "receipt_pending" : `receipt wait failed: ${(e as Error).message}`, txHash }
   }
 
   if (receipt.status !== "success") {
     return { ok: false, reason: "tx reverted on-chain", txHash }
   }
+  if (receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
+    return { ok: false, reason: "receipt transaction hash mismatch", txHash }
+  }
 
   const matched = receipt.logs.some((log) => {
+    if (log.removed) return false
     if (log.address.toLowerCase() !== chain.jpycAddress.toLowerCase()) return false
     if (log.topics[0] !== TRANSFER_EVENT_SIGNATURE) return false
     const from = `0x${log.topics[1]?.slice(-40)}`
     const to = `0x${log.topics[2]?.slice(-40)}`
     if (from.toLowerCase() !== expected.payer.toLowerCase()) return false
     if (to.toLowerCase() !== expected.payTo.toLowerCase()) return false
-    return BigInt(log.data) === expected.valueAtomic
+    try { return BigInt(log.data) === expected.valueAtomic } catch { return false }
   })
   if (!matched) {
     return {
@@ -213,6 +231,14 @@ export async function waitAndVerifyTransfer(
       reason: "Transfer event in receipt did not match expected (payer, payTo, value)",
       txHash,
     }
+  }
+  if (expected.nonce && !receipt.logs.some(log =>
+    !log.removed &&
+    log.address.toLowerCase() === chain.jpycAddress.toLowerCase() &&
+    log.topics[0] === AUTHORIZATION_USED_EVENT_SIGNATURE &&
+    log.topics[1]?.toLowerCase() === `0x${expected.payer.slice(2).toLowerCase().padStart(64, "0")}` &&
+    log.topics[2]?.toLowerCase() === expected.nonce!.toLowerCase())) {
+    return { ok: false, reason: "AuthorizationUsed event did not match expected (payer, nonce)", txHash }
   }
 
   let blockTimestampSec = 0n
