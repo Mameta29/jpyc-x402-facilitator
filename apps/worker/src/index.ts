@@ -18,7 +18,7 @@
  *   - Rate limit / nonce dedupe / HMAC replay are per-isolate best-effort.
  *     Cloudflare runs many isolates concurrently, so a caller spreading load
  *     across isolates weakens these. The authoritative broadcast serialization
- *     is the per-chain RelayerSignerDO (`blockConcurrencyWhile`), and the
+ *     is the per-chain RelayerSignerDO (atomic durable nonce allocation), and the
  *     JPYC contract's `authorizationState` is the final replay guard — a
  *     duplicate broadcast costs at most one revert's gas, never correctness.
  *     Operators MUST also enforce per-IP / per-route limits at the Cloudflare
@@ -154,6 +154,11 @@ export default {
             ) => Promise<{ txHash: string; broadcastAt: number } | null>
           }
           return await stub.getSettleRecord(payer, nonce)
+        },
+        rejection: async (chainId, payer, nonce) => {
+          const id = env.RELAYER.idFromName(`chain-${chainId}`)
+          const stub = env.RELAYER.get(id) as DurableObjectStub<import("./relayer-signer-do").RelayerSignerDO>
+          return await stub.getSubmissionRejection(payer, nonce)
         },
       },
     })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { waitAndVerifyTransfer } from "./settle-runner"
+import { waitAndVerifyTransfer, observeTransferReceipt } from "./settle-runner"
 import { getJpycChain } from "@jpyc-x402/shared"
 import {
   AUTHORIZATION_USED_EVENT_SIGNATURE as AUTH,
@@ -38,11 +38,27 @@ function setup() {
   const wait = vi.fn().mockResolvedValue(receipt)
   const client = {
     waitForTransactionReceipt: wait,
+    getTransactionReceipt: vi.fn().mockResolvedValue(receipt),
     getBlock: vi.fn().mockResolvedValue({ timestamp: 1000n, hash: nonce }),
   } as unknown as PublicClient
   return { receipt, wait, client }
 }
 describe("receipt verification outside the broadcast lock", () => {
+  it("observes an available receipt without a block watcher, polling or waiting", async () => {
+    const { client, wait } = setup()
+    expect(await observeTransferReceipt(client, 137, hash, { payer, payTo, valueAtomic: 0n, nonce }))
+      .toMatchObject({ ok: true, txHash: hash })
+    expect(wait).not.toHaveBeenCalled()
+    expect(client.getTransactionReceipt).toHaveBeenCalledTimes(1)
+  })
+  it("leaves missing receipts unresolved after one read", async () => {
+    const { client, wait } = setup()
+    vi.mocked(client.getTransactionReceipt).mockRejectedValue(new Error("not found"))
+    expect(await observeTransferReceipt(client, 137, hash, { payer, payTo, valueAtomic: 0n, nonce }))
+      .toEqual({ ok: false, reason: "receipt_pending", txHash: hash })
+    expect(wait).not.toHaveBeenCalled()
+    expect(client.getBlock).not.toHaveBeenCalled()
+  })
   it("verifies both authorization and transfer for a zero-JPYC payment", async () => {
     const { client, wait } = setup()
     expect(

@@ -248,7 +248,7 @@ describe("durable relayer journal under concurrency and faults", () => {
           },
         }),
       })
-      expect(await instance.broadcast(input(6))).toEqual({
+      expect(await instance.broadcast(input(6))).toMatchObject({
         ok: false,
         reason: "relayer_capacity_reached",
       })
@@ -392,7 +392,7 @@ describe("durable relayer journal under concurrency and faults", () => {
             notifyPending: true,
           })
         } else {
-          expect((await state.storage.list({ prefix: "due:" })).size).toBe(1)
+          expect((await state.storage.list({ prefix: "notify:" })).size).toBe(1)
           expect(await state.storage.get(key)).toMatchObject({ notifyPending: true })
         }
       })
@@ -431,14 +431,14 @@ describe("durable relayer journal under concurrency and faults", () => {
         state: "confirmed",
         notifyPending: true,
       })
-      expect((await state.storage.list({ prefix: "due:" })).size).toBe(1)
+      expect((await state.storage.list({ prefix: "notify:" })).size).toBe(1)
       vi.spyOn(Date, "now").mockReturnValue(Date.now() + 20_000)
       await instance.alarm()
       expect(await state.storage.get(key)).toMatchObject({
         state: "confirmed",
         notifyPending: false,
       })
-      expect((await state.storage.list({ prefix: "due:" })).size).toBe(0)
+      expect((await state.storage.list({ prefix: "notify:" })).size).toBe(0)
       const options = send.mock.calls[0]![1]!
       expect(options.redirect).toBe("manual")
       const body = options.body as string

@@ -60,6 +60,7 @@ function setup(recordOverrides: Partial<SettleRecord> = {}) {
     getSettleRecord: vi.fn().mockResolvedValue(record),
     broadcast: vi.fn(),
     recordReceipt: vi.fn().mockResolvedValue(undefined),
+    rejectBeforeBroadcast: vi.fn(),
   }
   const verify = vi.fn().mockResolvedValue({ ok: false, reason: "authorization_already_used" })
   const runner = new WorkerSettleRunner(
@@ -74,6 +75,29 @@ describe("WorkerSettleRunner recovery", () => {
   beforeEach(() => {
     receipt.mockReset()
     receipt.mockResolvedValue({ ok: true, txHash, blockTimestamp: new Date(250), chainId: 137 })
+  })
+  it("fences a locally verified authorization when the RPC verification fails before admission", async () => {
+    const { runner, stub, verify } = setup()
+    stub.getSettleRecord.mockResolvedValue(null)
+    verify.mockResolvedValue({ ok: false, reason: "unexpected_verify_error: simulation unavailable", signatureVerified: true, payer: input.payer })
+    const proof = { version: 1, state: "not_submitted", chainId: input.chainId, payer: input.payer,
+      nonce: input.nonce, closedAt: Date.now(), authorizationHash: authorizationFingerprint(input) }
+    stub.rejectBeforeBroadcast.mockResolvedValue({ ok: false, reason: "verification_unavailable", submissionRejection: proof })
+    expect(await runner.settle(payload, requirements)).toMatchObject({ submissionRejection: proof })
+    expect(stub.rejectBeforeBroadcast).toHaveBeenCalledWith(input, "verification_unavailable")
+    expect(stub.broadcast).not.toHaveBeenCalled()
+  })
+  it("does not close admission for an unverified signature or an already-used nonce", async () => {
+    const { runner, stub, verify } = setup()
+    stub.getSettleRecord.mockResolvedValue(null)
+    for (const failure of [
+      { ok: false, reason: "unexpected_verify_error" },
+      { ok: false, reason: "authorization_already_used", signatureVerified: true },
+    ]) {
+      verify.mockResolvedValue(failure)
+      expect(await runner.settle(payload, requirements)).not.toHaveProperty("submissionRejection")
+    }
+    expect(stub.rejectBeforeBroadcast).not.toHaveBeenCalled()
   })
 
   it.each(["authorization_already_used", "invalid_exact_evm_payload_authorization_valid_before"])(

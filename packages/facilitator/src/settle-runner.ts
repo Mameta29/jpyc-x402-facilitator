@@ -47,6 +47,7 @@ import {
   type Hex,
   type PublicClient,
   type WalletClient,
+  type TransactionReceipt,
   formatEther,
 } from "viem"
 
@@ -86,7 +87,21 @@ export interface SettleRunner {
     payload: PaymentPayload,
     requirements: PaymentRequirements,
     options?: { receiptTimeoutMs?: number },
-  ): Promise<{ verify: VerifyResult; settle?: SettleResult; timeline?: SettlementTimeline }>
+  ): Promise<{ verify: VerifyResult; settle?: SettleResult; timeline?: SettlementTimeline; submissionRejection?: SubmissionRejection }>
+}
+
+/** A durable fence, not a timeout inference. The relayer committed this
+ * rejection atomically against transaction preparation and will NEVER submit
+ * this payer/authorization nonce, including late or concurrent requests. */
+export interface SubmissionRejection {
+  version: 1
+  state: "not_submitted"
+  chainId: number
+  payer: string
+  nonce: string
+  authorizationHash: string
+  closedAt: number
+  reason: string
 }
 
 /** Server timestamps (milliseconds), not customer-facing payment states. */
@@ -98,6 +113,8 @@ export interface SettlementTimeline {
   broadcastAt?: number
   receiptObservedAt?: number
   blockTimestamp?: number
+  notificationStartedAt?: number
+  notificationAcknowledgedAt?: number
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -194,7 +211,6 @@ export async function waitAndVerifyTransfer(
   expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
   opts: { receiptTimeoutMs?: number } = {},
 ): Promise<SettleResult> {
-  const chain = getJpycChain(chainId)
   let receipt
   try {
     receipt = await publicClient.waitForTransactionReceipt({
@@ -204,6 +220,35 @@ export async function waitAndVerifyTransfer(
   } catch (e) {
     return { ok: false, reason: opts.receiptTimeoutMs ? "receipt_pending" : `receipt wait failed: ${(e as Error).message}`, txHash }
   }
+
+  return verifyTransferReceipt(publicClient, chainId, txHash, expected, receipt)
+}
+
+/** Recovery observes once, without creating a block watcher or sleeping in
+ * a shared recovery slot. A missing/failed receipt remains unresolved. */
+export async function observeTransferReceipt(
+  publicClient: PublicClient,
+  chainId: number,
+  txHash: Hex,
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
+): Promise<SettleResult> {
+  let receipt
+  try {
+    receipt = await publicClient.getTransactionReceipt({ hash: txHash })
+  } catch {
+    return { ok: false, reason: "receipt_pending", txHash }
+  }
+  return verifyTransferReceipt(publicClient, chainId, txHash, expected, receipt)
+}
+
+async function verifyTransferReceipt(
+  publicClient: PublicClient,
+  chainId: number,
+  txHash: Hex,
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
+  receipt: TransactionReceipt,
+): Promise<SettleResult> {
+  const chain = getJpycChain(chainId)
 
   if (receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
     return { ok: false, reason: "receipt transaction hash mismatch", txHash }
