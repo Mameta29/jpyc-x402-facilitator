@@ -12,7 +12,7 @@
     "head_sampling_rate": 1
   },
   "placement": {
-    "mode": "smart"
+    "mode": "off"
   },
   "vars": {
     "NODE_ENV": "staging",
@@ -36,7 +36,8 @@
   "env": {
     "staging": {
       "name": "jpyc-x402-facilitator-staging",
-      "placement": { "region": "aws:ap-northeast-1" },
+      // Match the placement used by the real staging load measurements.
+      "placement": { "mode": "off" },
       "routes": [
         {
           "pattern": "facilitator-staging.jpyc-service.com/*",

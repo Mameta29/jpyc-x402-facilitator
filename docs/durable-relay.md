@@ -1,10 +1,12 @@
 # Durable checkout relay (2026-09-24)
 
-Implemented on `fix/payment-durable-lifecycle-20260924`. Deployment is separate.
+Implemented on `fix/payment-durable-lifecycle-20260924`, with staging rollout fixes
+on `fix/staging-payment-measurement-20260925`. Kairos and Sepolia are deployed to
+staging; see [real load measurements](staging-load-20260925.md). Production is unchanged.
 
 ## Invariants
 
-- One Durable Object per `(chainId, signer)` is the exclusive writer of that relayer account. The EC refund/subscription relayer, scripts, and other services **must use different accounts**. Do not deploy a nonce journal around an account with independent writers.
+- One Durable Object per chain (`chain-${chainId}`) is the exclusive writer of that chain's configured relayer account. Nonce cursors also identify the signer. The EC refund/subscription relayer, scripts, and other services **must use different accounts**. Do not deploy a nonce journal around an account with independent writers.
 - Gas estimation and RPC nonce reads run outside the storage transaction. Only nonce allocation, local signing, raw transaction/hash persistence, and the next alarm commit together.
 - Nothing broadcasts before that commit. On a lost broadcast response, the known hash and identical signed bytes remain available. Returning a hash means prepared; it does not assert network-wide mempool inclusion.
 - Replays bind `(payer, authorization nonce)` to the full authorization fingerprint. Receipt verification matches the JPYC contract, payer, recipient, amount, AuthorizationUsed nonce, and canonical block hash. Zero-value transfers use the same checks.
