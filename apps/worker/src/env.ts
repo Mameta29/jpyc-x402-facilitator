@@ -13,6 +13,8 @@ export interface WorkerEnv {
   NODE_ENV: "development" | "staging" | "production" | "test"
   ENABLED_NETWORKS: string
   CORS_ORIGINS: string
+  /** Opt-in staging-only fallback; never adds a public provider in production. */
+  STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK?: string
   // Optional x402 Bazaar discovery catalog — a JSON array of
   // DiscoveryResource objects served at GET /discovery/resources. Absent or
   // malformed disables discovery. May be set as a var or a secret.

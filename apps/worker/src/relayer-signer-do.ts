@@ -28,6 +28,7 @@ import type { WorkerEnv } from "./env"
 import { authorizationFingerprint } from "./settlement-record"
 import { LegacyRelayerSigner } from "./legacy-relayer-signer"
 import { relayerChainKeys, usesDurableSettlement } from "./relayer-config"
+import { workerRpcResolver } from "./rpc"
 
 export interface DoBroadcastInput {
   chainId: number
@@ -109,9 +110,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     return account
   }
   private clients(chainId: number) {
-    const chain = getJpycChain(chainId)
     const transport = fallback(
-      readRpcUrls(this.env, chainId, chain.publicRpc).map((url) =>
+      workerRpcResolver(this.env)(chainId).urls.map((url) =>
         http(url, { timeout: 4_000, retryCount: 0 }),
       ),
       { rank: false, retryCount: 0 },
@@ -615,16 +615,4 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       txHash: row.txHash, status: response.status, durationMs: Date.now() - startedAt }))
     if (!response.ok) throw new Error("recovery_callback_failed")
   }
-}
-
-function readRpcUrls(env: WorkerEnv, chainId: number, fallbackUrl: string): string[] {
-  const key = `RPC_URLS_${chainId}` as keyof WorkerEnv
-  const raw = env[key]
-  if (typeof raw === "string" && raw.length > 0) {
-    return raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  }
-  return [fallbackUrl]
 }

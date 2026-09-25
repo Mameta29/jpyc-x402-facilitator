@@ -19,6 +19,7 @@
     "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
     "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
     "DURABLE_SETTLEMENT_CHAINS": "1001,11155111",
+    "STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK": "true",
     "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
   },
   "durable_objects": {
@@ -47,6 +48,7 @@
         "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
         "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
         "DURABLE_SETTLEMENT_CHAINS": "1001,11155111",
+        "STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK": "true",
         "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
       },
       "durable_objects": {
