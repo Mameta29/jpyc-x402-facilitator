@@ -4,22 +4,19 @@ Cloudflare Workers + Durable Objects deployment of the JPYC x402 facilitator.
 
 This is the **edge-native** deployment target. For self-hosted Node deployments
 (Render, Fly.io, VPS), see [`apps/server`](../server). Both apps consume the
-same `@jpyc-x402/facilitator` core, so feature parity is automatic.
+same protocol core; their broadcast and recovery implementations differ.
 
 ## Why a Worker (and a DO)
 
-- Cloudflare Workers gives us the lowest possible latency between the agent
-  and the facilitator (Placement Hints `aws:ap-northeast-1` puts the Worker
-  in Tokyo for JPYC's Japanese user base).
-- Workers don't charge for I/O wait time, so the 2-30s `eth_getTransactionReceipt`
-  await is free even though the request is "open" the whole time.
+- Worker placement can be configured near upstream infrastructure. Staging
+  currently uses default placement; production retains its Tokyo-region hint.
+  Measure the full path, including the EC server, DB, RPC and recovery callbacks.
 - One **Durable Object per chain** owns the broadcast lane for that chain.
-  `blockConcurrencyWhile` inside the DO serialises nonce assignment so two
-  parallel settle requests on the same chain can never grab the same nonce.
-- We deliberately keep the DO lock to **broadcast only**. Receipt waiting
-  runs back in the parent Worker, fully concurrent. This avoids the DO's
-  hard 30-second `blockConcurrencyWhile` timeout, which would otherwise
-  reset the DO when an Ethereum mainnet receipt takes too long.
+  On durable-enabled chains, a storage transaction serializes nonce allocation,
+  local signing and persistence. RPC work stays outside that transaction.
+- Receipt waiting runs in the parent Worker and in persisted DO alarms.
+  Browser or HTTP disconnection does not remove the stored transaction or
+  the obligation to confirm its result and notify the merchant.
 
 ## Local development
 
@@ -85,15 +82,45 @@ pnpm tail:production
 
 ## Cost expectations
 
-- Workers Paid `$5/month` includes 10M requests + 30M CPU-ms. A facilitator
-  request is sub-15ms of CPU even on heavy verify (signature recovery), so
-  practical capacity is **2M+ settles/month within the included quota**.
-- Durable Objects: 1M requests/month included on Paid; we hit one DO per
-  settle so 1M settles/month is also within the included quota.
-- I/O wait time (Polygon receipt: 2-3s, Ethereum: 12-30s) is **not billed**
-  on Workers — only CPU time is.
+Measure CPU, Durable Object requests/storage, alarms, callbacks and RPC usage
+under the intended traffic. Durable recovery performs multiple operations per
+payment; do not infer monthly payment capacity from a single-request estimate.
+The staging load results measure latency and consistency, not a billing budget.
 
 ## Operations
+
+### Chain-scoped durable rollout
+
+Staging enables the durable transaction journal on Kairos (1001) and Sepolia
+(11155111) through `DURABLE_SETTLEMENT_CHAINS`. Other staging chains retain the
+previous broadcast path. An omitted allowlist enables the durable path on all
+chains; an empty string disables it on all chains.
+
+`RELAYER_CHAIN_PRIVATE_KEYS` is an optional **secret** containing a JSON object
+from chain IDs to private keys. It overrides `RELAYER_PRIVATE_KEY` only on the
+listed chains, including verification, sending and balance monitoring. Never
+put these values in Wrangler vars or source control. Only override chains that
+are opted into the durable path.
+
+Each durable sender must be exclusive to this facilitator's nonce allocator.
+Fund and verify it on each selected testnet before activating a version. Keep
+the existing default key for chains outside the rollout. This is one sender
+per chain, not a multi-wallet load-balancing pool. Check pending settlements
+before rollout or rollback, and retain their journal and signing configuration
+until they have reached a terminal state.
+
+`SETTLEMENT_NOTIFY_SECRET` must match the staging storefront callback secret.
+The callback URL is fixed in Wrangler configuration; customer requests cannot
+choose its destination.
+
+`STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK=true` appends the chain registry's public
+Sepolia RPC after configured providers, for staging only. Verification and the
+durable sender use the same resolver. Production and other configured chains
+are unchanged. Existing private RPC secrets are not copied or replaced.
+
+Staging uses default placement (`placement.mode = "off"`), matching the
+2026-09-25 load measurements. Production retains its explicit placement hint.
+See [measured results and remaining limits](../../docs/staging-load-20260925.md).
 
 - **Cron**: `*/1 * * * *` triggers `scheduled()` to refresh balance cache
   for every enabled chain. Failures per chain are isolated.

@@ -13,6 +13,8 @@ export interface WorkerEnv {
   NODE_ENV: "development" | "staging" | "production" | "test"
   ENABLED_NETWORKS: string
   CORS_ORIGINS: string
+  /** Opt-in staging-only fallback; never adds a public provider in production. */
+  STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK?: string
   // Optional x402 Bazaar discovery catalog — a JSON array of
   // DiscoveryResource objects served at GET /discovery/resources. Absent or
   // malformed disables discovery. May be set as a var or a secret.
@@ -20,6 +22,13 @@ export interface WorkerEnv {
 
   // ── Secrets (wrangler secret put) ──────────────────────────────────────
   RELAYER_PRIVATE_KEY: string
+  /** Optional JSON object mapping chain IDs to exclusive sender keys. */
+  RELAYER_CHAIN_PRIVATE_KEYS?: string
+  /** Explicit rollout allowlist. Omitted enables the durable implementation on all chains. */
+  DURABLE_SETTLEMENT_CHAINS?: string
+  /** Fixed integrator callback; never accepted from customer payloads. */
+  SETTLEMENT_NOTIFY_URL?: string
+  SETTLEMENT_NOTIFY_SECRET?: string
   // HMAC request-auth keys: comma-separated `keyId:secret` pairs guarding
   // /verify, /settle, /supported. Required in staging/production — loadConfig
   // refuses to boot without it. Set via `wrangler secret put`.

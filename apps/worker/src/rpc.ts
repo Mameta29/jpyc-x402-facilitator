@@ -13,14 +13,12 @@ export function workerRpcResolver(env: WorkerEnv): RpcResolver {
   return (chainId: number): ChainRpcConfig => {
     const key = `RPC_URLS_${chainId}` as keyof WorkerEnv
     const raw = env[key]
-    if (typeof raw === "string" && raw.length > 0) {
-      return {
-        urls: raw
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      }
+    const urls = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter(Boolean) : []
+    if (urls.length === 0 || (env.NODE_ENV === "staging" && chainId === 11155111 &&
+      env.STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK === "true")) {
+      const fallback = getJpycChain(chainId).publicRpc
+      if (!urls.includes(fallback)) urls.push(fallback)
     }
-    return { urls: [getJpycChain(chainId).publicRpc] }
+    return { urls }
   }
 }

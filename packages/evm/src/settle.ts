@@ -14,7 +14,7 @@
 
 import { TRANSFER_EVENT_SIGNATURE } from "./events.js"
 import { JPYC_ABI } from "./abi.js"
-import { checkTimeWindow, splitSignatureComponents, type VerifyOk } from "./verify.js"
+import { checkTimeWindow, submissionMarginSeconds, splitSignatureComponents, type VerifyOk } from "./verify.js"
 import { isRelayerGasExhaustionError, parseEip3009RevertReason } from "./revert.js"
 import {
   type Account,
@@ -67,6 +67,8 @@ export async function settleExactPayment(
     verified.validAfter,
     verified.validBefore,
     BigInt(Math.floor(Date.now() / 1000)),
+    undefined,
+    submissionMarginSeconds(verified.chainId),
   )
   if (timeError) {
     return { ok: false, reason: timeError }
@@ -121,7 +123,7 @@ export async function settleExactPayment(
       timeout: opts.receiptTimeoutMs ?? 120_000,
     })
   } catch (e) {
-    return { ok: false, reason: `receipt wait failed: ${(e as Error).message}`, txHash }
+    return { ok: false, reason: opts.receiptTimeoutMs ? "receipt_pending" : `receipt wait failed: ${(e as Error).message}`, txHash }
   }
 
   if (receipt.status !== "success") {

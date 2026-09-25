@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest"
-import { hashTypedData, type Hex } from "viem"
+import { BaseError, ContractFunctionRevertedError, hashTypedData, type Hex } from "viem"
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts"
 import {
   TRANSFER_WITH_AUTHORIZATION_TYPES,
@@ -24,6 +24,7 @@ import {
   BLOCK_TIME_GRACE_SECONDS,
   checkRequirementsMatch,
   checkTimeWindow,
+  submissionMarginSeconds,
   rejectHighS,
   splitSignatureComponents,
   verifyExactPayment,
@@ -252,6 +253,21 @@ describe("checkTimeWindow", () => {
   const AFTER = 1_000n
   const BEFORE = 2_000n
 
+  it.each([[1, 30], [11155111, 30], [137, 15], [8217, 15], [43114, 15]])(
+    "requires a broadcast margin on chain %i without widening the upper deadline",
+    (chainId, seconds) => {
+      const margin = submissionMarginSeconds(chainId)
+      expect(margin).toBe(BigInt(seconds))
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - margin, 180n, margin)).toBe(
+        "invalid_exact_evm_payload_authorization_valid_before",
+      )
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - margin - 1n, 180n, margin)).toBeNull()
+      expect(checkTimeWindow(AFTER, BEFORE, BEFORE - 187n, 180n, margin)).toBe(
+        "invalid_exact_evm_payload_authorization_valid_before",
+      )
+    },
+  )
+
   it("returns null when now is comfortably inside the window", () => {
     expect(checkTimeWindow(AFTER, BEFORE, 1_500n)).toBeNull()
   })
@@ -399,7 +415,9 @@ describe("verifyExactPayment", () => {
     const { payload, required } = await buildSignedPayload(sk)
     const account = privateKeyToAccount(sk)
     const publicClient = mockPublicClient({
-      simulateThrows: new Error("execution reverted: FiatTokenV2: invalid signature"),
+      simulateThrows: new BaseError("Contract call failed", { cause: new ContractFunctionRevertedError({
+        abi: [], functionName: "transferWithAuthorization", message: "FiatTokenV2: invalid signature",
+      }) }),
     })
     const res = await verifyAt(payload, required, {
       publicClient,
@@ -407,6 +425,32 @@ describe("verifyExactPayment", () => {
     })
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.reason).toMatch(/invalid_transaction_state/)
+  })
+
+  it("does not report RPC rate limits as contract reverts or expose provider details", async () => {
+    const sk = generatePrivateKey()
+    const { payload, required } = await buildSignedPayload(sk)
+    const res = await verifyAt(payload, required, {
+      publicClient: mockPublicClient({ simulateThrows: new BaseError("Contract call failed", {
+        cause: new Error("HTTP 429 https://rpc.invalid/secret-provider-key calldata=private-request"),
+      }) }),
+      relayerAccount: privateKeyToAccount(sk),
+    })
+    expect(res).toMatchObject({ ok: false, reason: "unexpected_verify_error: simulation unavailable" })
+    expect(JSON.stringify(res)).not.toMatch(/secret-provider-key|private-request/)
+  })
+
+  it("logs an unavailable replay check without exposing the RPC URL or request", async () => {
+    const sk = generatePrivateKey()
+    const { payload, required } = await buildSignedPayload(sk)
+    const publicClient = mockPublicClient({})
+    vi.mocked(publicClient.readContract).mockRejectedValueOnce(new Error("HTTP 429 https://rpc.invalid/secret-provider-key calldata=private-request"))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      expect(await verifyAt(payload, required, { publicClient, relayerAccount: privateKeyToAccount(sk) })).toMatchObject({ ok: true })
+      expect(warn).toHaveBeenCalled()
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(/secret-provider-key|private-request/)
+    } finally { warn.mockRestore() }
   })
 
   it("rejects payloads whose `accepted.amount` differs from authorization.value", async () => {

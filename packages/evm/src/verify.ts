@@ -37,6 +37,8 @@ import {
   type Account,
   hashTypedData,
   recoverAddress,
+  BaseError,
+  ContractFunctionRevertedError,
 } from "viem"
 import { JPYC_ABI } from "./abi.js"
 
@@ -125,7 +127,7 @@ export async function verifyExactPayment(
     valueAtomic = BigInt(a.value)
     validAfter = BigInt(a.validAfter)
     validBefore = BigInt(a.validBefore)
-  } catch (e) {
+  } catch {
     return { ok: false, reason: `${X402_ERROR_CODES.invalid_payload}: malformed integer field` }
   }
 
@@ -202,6 +204,7 @@ export async function verifyExactPayment(
     validBefore,
     now(),
     BigInt(required.maxTimeoutSeconds),
+    submissionMarginSeconds(chainId),
   )
   if (timeError) {
     return { ok: false, reason: timeError, payer: a.from as Address }
@@ -222,16 +225,12 @@ export async function verifyExactPayment(
         payer: a.from as Address,
       }
     }
-  } catch (e) {
+  } catch {
     // Don't hard-fail verification just because the read failed — settlement
     // simulation below will catch a true conflict. We do log it though, so
     // that a flaky RPC erasing our pre-broadcast replay check doesn't go
     // silently unnoticed in production.
-    console.warn(
-      `[verify] authorizationState read failed for chainId=${chainId} ` +
-        `payer=${a.from} nonce=${a.nonce} — falling through to simulate. ` +
-        `cause: ${e instanceof Error ? e.message : String(e)}`,
-    )
+    console.warn(JSON.stringify({ ev: "verify.rpc_unavailable", chainId, stage: "authorization_state" }))
   }
 
   // 2) balance check
@@ -279,10 +278,15 @@ export async function verifyExactPayment(
       account: deps.relayerAccount,
     })
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    // A rate limit or transport failure is not evidence of a contract revert.
+    // Do not return RPC messages: viem can include provider keys and calldata.
+    const reverted = e instanceof BaseError &&
+      e.walk((cause) => cause instanceof ContractFunctionRevertedError) instanceof ContractFunctionRevertedError
     return {
       ok: false,
-      reason: `${X402_ERROR_CODES.invalid_transaction_state}: simulation reverted: ${msg.slice(0, 240)}`,
+      reason: reverted
+        ? `${X402_ERROR_CODES.invalid_transaction_state}: simulation reverted`
+        : `${X402_ERROR_CODES.unexpected_verify_error}: simulation unavailable`,
       payer: a.from as Address,
     }
   }
@@ -309,6 +313,11 @@ export async function verifyExactPayment(
  */
 export const BLOCK_TIME_GRACE_SECONDS = 6n
 
+/** Submission budget after approval; not a finality guarantee. */
+export function submissionMarginSeconds(chainId: number): bigint {
+  return chainId === 1 || chainId === 11155111 ? 30n : 15n
+}
+
 /**
  * Pure time-window check for an EIP-3009 authorization. Returns an x402 error
  * code string if `now` is outside `[validAfter, validBefore)` (with the
@@ -332,11 +341,12 @@ export function checkTimeWindow(
   validBefore: bigint,
   now: bigint,
   maxTimeoutSeconds?: bigint,
+  submissionMargin: bigint = BLOCK_TIME_GRACE_SECONDS,
 ): string | null {
   if (now < validAfter) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_after
   }
-  if (now + BLOCK_TIME_GRACE_SECONDS >= validBefore) {
+  if (now + submissionMargin >= validBefore) {
     return X402_ERROR_CODES.invalid_exact_evm_payload_authorization_valid_before
   }
   // Upper bound: validBefore must not sit further than maxTimeoutSeconds

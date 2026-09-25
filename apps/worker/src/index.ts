@@ -45,6 +45,7 @@ import {
 import { caip2ToEvmChainId } from "@jpyc-x402/shared"
 import type { Hex } from "viem"
 import type { WorkerEnv } from "./env"
+import { relayerChainKeys } from "./relayer-config"
 import { configEnvironment } from "./config-env"
 import { workerRpcResolver } from "./rpc"
 import { WorkerSettleRunner } from "./worker-settle-runner"
@@ -102,6 +103,7 @@ function buildBundle(env: WorkerEnv): CtorBundle {
   // would broadcast.
   const signerProvider = privateKeyRelayerProvider({
     defaultPrivateKey: env.RELAYER_PRIVATE_KEY as Hex,
+    perChain: relayerChainKeys(env),
   })
   const facilitator = new ExactEvmFacilitator({
     enabledChainIds: config.enabledChainIds,
@@ -170,6 +172,7 @@ export default {
       publicClient: buildPublicClient(chainId, workerRpcResolver(env)),
       account: privateKeyRelayerProvider({
         defaultPrivateKey: env.RELAYER_PRIVATE_KEY as Hex,
+        perChain: relayerChainKeys(env),
       }).forChain(chainId),
     }))
     ctx.waitUntil(

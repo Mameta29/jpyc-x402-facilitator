@@ -79,7 +79,7 @@ export interface AppDeps {
       chainId: number,
       payer: string,
       nonce: string,
-    ): Promise<{ txHash: string; broadcastAt: number } | null>
+    ): Promise<{ txHash: string; broadcastAt: number; timeline?: import("./settle-runner.js").SettlementTimeline } | null>
   }
 }
 
@@ -259,7 +259,9 @@ export function createApp(deps: AppDeps) {
       const result = await deps.settleRunner.settle(
         parsed.paymentPayload,
         parsed.paymentRequirements,
+        parsed.receiptTimeoutMs === undefined ? undefined : { receiptTimeoutMs: parsed.receiptTimeoutMs },
       )
+      const extensions = result.timeline ? { "jpyc.settlementTimeline": result.timeline } : undefined
 
       if (!result.verify.ok) {
         const body: SettlementResponse = {
@@ -268,6 +270,7 @@ export function createApp(deps: AppDeps) {
           payer: result.verify.payer ?? payer,
           transaction: "",
           network: parsed.paymentRequirements.network,
+          extensions,
         }
         return c.json(body)
       }
@@ -281,6 +284,7 @@ export function createApp(deps: AppDeps) {
           payer,
           transaction: settle.txHash ?? "",
           network: parsed.paymentRequirements.network,
+          extensions,
         }
         return c.json(body)
       }
@@ -311,6 +315,7 @@ export function createApp(deps: AppDeps) {
         transaction: settle.txHash,
         network: parsed.paymentRequirements.network,
         amount: valueAtomic.toString(),
+        extensions,
       }
       return c.json(body)
     } catch (e) {
@@ -347,18 +352,19 @@ export function createApp(deps: AppDeps) {
       }
       const chainId = caip2ToEvmChainId(network)
 
-      const cached = deps.nonceCache.get(chainId, payer as Address, nonce)
-      if (cached?.settled && cached.txHash) {
-        return c.json({ known: true, txHash: cached.txHash, source: "cache" })
-      }
       const record = (await deps.settleRecords?.get(chainId, payer, nonce)) ?? null
       if (record) {
         return c.json({
           known: true,
           txHash: record.txHash,
           broadcastAt: record.broadcastAt,
+          ...(record.timeline ? { timeline: record.timeline } : {}),
           source: "durable",
         })
+      }
+      const cached = deps.nonceCache.get(chainId, payer as Address, nonce)
+      if (cached?.settled && cached.txHash) {
+        return c.json({ known: true, txHash: cached.txHash, source: "cache" })
       }
       return c.json({ known: false })
     } catch (e) {
