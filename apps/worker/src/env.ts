@@ -20,6 +20,10 @@ export interface WorkerEnv {
 
   // ── Secrets (wrangler secret put) ──────────────────────────────────────
   RELAYER_PRIVATE_KEY: string
+  /** Optional JSON object mapping chain IDs to exclusive sender keys. */
+  RELAYER_CHAIN_PRIVATE_KEYS?: string
+  /** Explicit rollout allowlist. Omitted enables the durable implementation on all chains. */
+  DURABLE_SETTLEMENT_CHAINS?: string
   /** Fixed integrator callback; never accepted from customer payloads. */
   SETTLEMENT_NOTIFY_URL?: string
   SETTLEMENT_NOTIFY_SECRET?: string

@@ -95,6 +95,30 @@ pnpm tail:production
 
 ## Operations
 
+### Chain-scoped durable rollout
+
+Staging enables the durable transaction journal on Kairos (1001) and Sepolia
+(11155111) through `DURABLE_SETTLEMENT_CHAINS`. Other staging chains retain the
+previous broadcast path. An omitted allowlist enables the durable path on all
+chains; an empty string disables it on all chains.
+
+`RELAYER_CHAIN_PRIVATE_KEYS` is an optional **secret** containing a JSON object
+from chain IDs to private keys. It overrides `RELAYER_PRIVATE_KEY` only on the
+listed chains, including verification, sending and balance monitoring. Never
+put these values in Wrangler vars or source control. Only override chains that
+are opted into the durable path.
+
+Each durable sender must be exclusive to this facilitator's nonce allocator.
+Fund and verify it on each selected testnet before activating a version. Keep
+the existing default key for chains outside the rollout. This is one sender
+per chain, not a multi-wallet load-balancing pool. Check pending settlements
+before rollout or rollback, and retain their journal and signing configuration
+until they have reached a terminal state.
+
+`SETTLEMENT_NOTIFY_SECRET` must match the staging storefront callback secret.
+The callback URL is fixed in Wrangler configuration; customer requests cannot
+choose its destination.
+
 - **Cron**: `*/1 * * * *` triggers `scheduled()` to refresh balance cache
   for every enabled chain. Failures per chain are isolated.
 - **Logs**: Workers Logs (free 200k/day, paid 20M/month) automatically

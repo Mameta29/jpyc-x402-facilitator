@@ -26,6 +26,8 @@ import { getJpycChain } from "@jpyc-x402/shared"
 import { waitAndVerifyTransfer, type SettlementTimeline } from "@jpyc-x402/facilitator"
 import type { WorkerEnv } from "./env"
 import { authorizationFingerprint } from "./settlement-record"
+import { LegacyRelayerSigner } from "./legacy-relayer-signer"
+import { relayerChainKeys, usesDurableSettlement } from "./relayer-config"
 
 export interface DoBroadcastInput {
   chainId: number
@@ -95,10 +97,16 @@ const recordKey = (payer: string, nonce: string) =>
 const dueKey = (at: number, key: string) => `due:${String(at).padStart(16, "0")}:${key}`
 
 export class RelayerSignerDO extends DurableObject<WorkerEnv> {
-  private account?: ReturnType<typeof privateKeyToAccount>
+  private accounts = new Map<number, ReturnType<typeof privateKeyToAccount>>()
+  private legacy?: LegacyRelayerSigner
   private inFlight = new Map<string, Promise<DoBroadcastResult>>()
-  private getAccount() {
-    return (this.account ??= privateKeyToAccount(this.env.RELAYER_PRIVATE_KEY as Hex))
+  private getAccount(chainId: number) {
+    let account = this.accounts.get(chainId)
+    if (!account) {
+      account = privateKeyToAccount(relayerChainKeys(this.env)[chainId] ?? this.env.RELAYER_PRIVATE_KEY as Hex)
+      this.accounts.set(chainId, account)
+    }
+    return account
   }
   private clients(chainId: number) {
     const chain = getJpycChain(chainId)
@@ -111,7 +119,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     return {
       public: createPublicClient({ chain: resolveViemChain(chainId), transport }),
       wallet: createWalletClient({
-        account: this.getAccount(),
+        account: this.getAccount(chainId),
         chain: resolveViemChain(chainId),
         transport,
       }),
@@ -171,6 +179,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   ) {
     const key = recordKey(payer, nonce)
     const record = await this.ctx.storage.get<DurableSettleRecord>(key)
+    if (record && !usesDurableSettlement(this.env, record.chainId)) return
     if (
       !record ||
       ![record.txHash, ...(record.previousTransactions ?? []).map((tx) => tx.txHash)].some(
@@ -192,6 +201,10 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   }
 
   async broadcast(input: DoBroadcastInput): Promise<DoBroadcastResult> {
+    if (!usesDurableSettlement(this.env, input.chainId)) {
+      this.legacy ??= new LegacyRelayerSigner(this.ctx, this.env)
+      return this.legacy.broadcast(input)
+    }
     const key = recordKey(input.payer, input.nonce)
     // Coalescing is only an optimization. Durable transaction below is the
     // authoritative gate, including after a process restart.
@@ -232,7 +245,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       )
       if (timeError) return { ok: false, reason: timeError }
       const { public: publicClient, wallet } = this.clients(input.chainId)
-      const account = this.getAccount()
+      const account = this.getAccount(input.chainId)
       const chain = getJpycChain(input.chainId)
       const { v, r, s } = splitSignatureComponents(input.signature)
       const data = encodeFunctionData({
@@ -484,7 +497,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     if (
       !row.rawTransaction ||
       !row.signer ||
-      row.signer.toLowerCase() !== this.getAccount().address.toLowerCase() ||
+      row.signer.toLowerCase() !== this.getAccount(row.chainId).address.toLowerCase() ||
       (row.previousTransactions?.length ?? 0) >= 3
     )
       return row
@@ -512,7 +525,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         fees.maxFeePerGas > bump(tx.maxFeePerGas!) ? fees.maxFeePerGas : bump(tx.maxFeePerGas!)
       if (maxFeePerGas > original.maxFeePerGas! * 4n || maxPriorityFeePerGas > maxFeePerGas)
         return row
-      rawTransaction = await this.getAccount().signTransaction({
+      rawTransaction = await this.getAccount(row.chainId).signTransaction({
         ...base,
         type: "eip1559",
         maxPriorityFeePerGas,
@@ -522,7 +535,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       const estimate = await this.clients(row.chainId).public.getGasPrice()
       const gasPrice = estimate > bump(tx.gasPrice!) ? estimate : bump(tx.gasPrice!)
       if (gasPrice > original.gasPrice! * 4n) return row
-      rawTransaction = await this.getAccount().signTransaction({
+      rawTransaction = await this.getAccount(row.chainId).signTransaction({
         ...base,
         type: "legacy",
         gasPrice,

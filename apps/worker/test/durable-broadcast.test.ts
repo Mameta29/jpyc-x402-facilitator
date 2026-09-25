@@ -26,6 +26,20 @@ function stub() {
 }
 
 describe("durable relayer journal under concurrency and faults", () => {
+  it("keeps chains outside the rollout on the previous sender without allocating a durable nonce", async () => {
+    const object = stub()
+    await runInDurableObject(object, async (instance, state) => {
+      const broadcast = vi.fn().mockResolvedValue({ ok: true, txHash: `0x${"e".repeat(64)}` })
+      Object.defineProperty(instance, "env", { value: { DURABLE_SETTLEMENT_CHAINS: "1001,11155111" } })
+      Object.defineProperty(instance, "legacy", { value: { broadcast } })
+      const payment = { ...input(1), chainId: 80002 }
+      expect(await instance.broadcast(payment)).toMatchObject({ ok: true })
+      expect(broadcast).toHaveBeenCalledWith(payment)
+      expect((await state.storage.list()).size).toBe(0)
+      expect(await state.storage.getAlarm()).toBeNull()
+    })
+  })
+
   it("persists bytes before sending and allocates 64 unique nonces while RPC sends overlap", async () => {
     const object = stub()
     await runInDurableObject(object, async (instance, state) => {
