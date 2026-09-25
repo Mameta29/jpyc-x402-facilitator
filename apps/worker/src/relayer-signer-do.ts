@@ -599,7 +599,9 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       headers: { "Content-Type": "application/json", "X-Settlement-Signature": signature },
       body,
       signal: AbortSignal.timeout(10_000),
-      redirect: "error",
+      // workerd rejects redirect:"error" before making any request. Manual
+      // keeps the signed body on this fixed origin; 3xx remains a failed delivery.
+      redirect: "manual",
     }).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message
         .replace(/https?:\/\/\S+/g, "[url]")

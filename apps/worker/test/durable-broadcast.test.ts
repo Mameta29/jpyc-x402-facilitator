@@ -440,6 +440,7 @@ describe("durable relayer journal under concurrency and faults", () => {
       })
       expect((await state.storage.list({ prefix: "due:" })).size).toBe(0)
       const options = send.mock.calls[0]![1]!
+      expect(options.redirect).toBe("manual")
       const body = options.body as string
       const cryptoKey = await crypto.subtle.importKey(
         "raw",
