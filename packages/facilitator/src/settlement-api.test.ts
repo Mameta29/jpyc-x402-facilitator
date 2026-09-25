@@ -54,10 +54,11 @@ function setup() {
       timeline: { broadcastAt: 1100, receiptObservedAt: 1200 },
     })
   const nonceCache = new NonceCache()
+  const rejection = vi.fn().mockResolvedValue(null)
   const app = createApp({
     facilitator: {} as ExactEvmFacilitator,
     settleRunner: { settle },
-    settleRecords: { get },
+    settleRecords: { get, rejection },
     nonceCache,
     rateLimiter: new RateLimiter({ windowSeconds: 60, maxRequests: 10 }),
     cors: { origins: ["*"] },
@@ -69,7 +70,7 @@ function setup() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     })
-  return { post, settle, get, nonceCache }
+  return { post, settle, get, rejection, nonceCache }
 }
 
 describe("settlement API compatibility", () => {
@@ -115,5 +116,19 @@ describe("settlement API compatibility", () => {
       await (await post("/settle-status", { network: "eip155:137", payer, nonce })).json(),
     ).toEqual({ known: false })
     expect(settle).not.toHaveBeenCalled()
+  })
+
+  it("exposes a durable admission closure in settlement and recovery responses", async () => {
+    const { post, settle, get, rejection } = setup()
+    const proof = { version: 1, state: "not_submitted", chainId: 137, payer, nonce,
+      authorizationHash: txHash, closedAt: 1234, reason: "verification_unavailable" }
+    settle.mockResolvedValue({ verify: { ok: false, reason: "unexpected_verify_error" }, submissionRejection: proof })
+    expect(await (await post("/settle", body)).json()).toMatchObject({
+      success: false, transaction: "", extensions: { "jpyc.submissionRejection": proof },
+    })
+    get.mockResolvedValue(null)
+    rejection.mockResolvedValue(proof)
+    expect(await (await post("/settle-status", { network: "eip155:137", payer, nonce })).json())
+      .toEqual({ known: false, source: "durable", submissionRejection: proof })
   })
 })

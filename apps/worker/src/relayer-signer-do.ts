@@ -23,7 +23,7 @@ import {
   parseEip3009RevertReason,
 } from "@jpyc-x402/evm"
 import { getJpycChain } from "@jpyc-x402/shared"
-import { waitAndVerifyTransfer, type SettlementTimeline } from "@jpyc-x402/facilitator"
+import { observeTransferReceipt, type SettlementTimeline, type SubmissionRejection } from "@jpyc-x402/facilitator"
 import type { WorkerEnv } from "./env"
 import { authorizationFingerprint } from "./settlement-record"
 import { LegacyRelayerSigner } from "./legacy-relayer-signer"
@@ -57,6 +57,7 @@ export interface DoBroadcastOk {
 export interface DoBroadcastFail {
   ok: false
   reason: string
+  submissionRejection?: SubmissionRejection
 }
 export type DoBroadcastResult = DoBroadcastOk | DoBroadcastFail
 
@@ -89,6 +90,7 @@ interface DurableSettleRecord extends SettleRecord {
   nextCheck?: number
   checks?: number
   notifyPending?: boolean
+  notificationAttempts?: number
   lastError?: string
   previousTransactions?: { txHash: Hex; rawTransaction: Hex }[]
   replacedAt?: number
@@ -96,11 +98,14 @@ interface DurableSettleRecord extends SettleRecord {
 const recordKey = (payer: string, nonce: string) =>
   `settle:${payer.toLowerCase()}:${nonce.toLowerCase()}`
 const dueKey = (at: number, key: string) => `due:${String(at).padStart(16, "0")}:${key}`
+const notifyKey = (at: number, key: string) => `notify:${String(at).padStart(16, "0")}:${key}`
+const isTerminal = (row: DurableSettleRecord) => row.state === "confirmed" || row.state === "reverted"
 
 export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   private accounts = new Map<number, ReturnType<typeof privateKeyToAccount>>()
   private legacy?: LegacyRelayerSigner
   private inFlight = new Map<string, Promise<DoBroadcastResult>>()
+  private notificationPump?: Promise<void>
   private getAccount(chainId: number) {
     let account = this.accounts.get(chainId)
     if (!account) {
@@ -141,6 +146,44 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     }
   }
 
+  async getSubmissionRejection(payer: string, nonce: string): Promise<SubmissionRejection | null> {
+    const key = recordKey(payer, nonce)
+    return this.ctx.storage.transaction(async txn => {
+      if (await txn.get(key)) return null
+      return await txn.get<SubmissionRejection>(`closed:${key}`) ?? null
+    })
+  }
+
+  /** Internal RPC, only called after signature validation. Shares the atomic
+   * admission gate with preparation, so an RPC failure cannot race a late send. */
+  async rejectBeforeBroadcast(input: DoBroadcastInput, reason: string): Promise<DoBroadcastResult> {
+    if (!usesDurableSettlement(this.env, input.chainId)) return { ok: false, reason }
+    const key = recordKey(input.payer, input.nonce)
+    try {
+      return await this.ctx.storage.transaction(async txn => {
+        const recorded = await txn.get<DurableSettleRecord>(key)
+        const fingerprint = authorizationFingerprint(input)
+        if (recorded) {
+          if (recorded.authorizationHash && recorded.authorizationHash !== fingerprint)
+            return { ok: false as const, reason: "authorization_record_mismatch" }
+          return { ok: true as const, txHash: recorded.txHash, replayed: true, timeline: recorded.timeline }
+        }
+        const existing = await txn.get<SubmissionRejection>(`closed:${key}`)
+        if (existing && existing.authorizationHash !== fingerprint)
+          return { ok: false as const, reason: "authorization_record_mismatch" }
+        const rejection: SubmissionRejection = existing ?? {
+          version: 1, state: "not_submitted", chainId: input.chainId,
+          payer: input.payer.toLowerCase(), nonce: input.nonce.toLowerCase(),
+          authorizationHash: fingerprint, closedAt: Date.now(), reason,
+        }
+        if (!existing) await txn.put(`closed:${key}`, rejection)
+        return { ok: false as const, reason, submissionRejection: rejection }
+      })
+    } catch {
+      return { ok: false, reason }
+    }
+  }
+
   private async schedule(
     key: string,
     update: Partial<DurableSettleRecord>,
@@ -160,11 +203,12 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       )
         return
       if (row.state === "confirmed" && update.state && update.state !== "confirmed") return
-      if (row.nextCheck) await txn.delete(dueKey(row.nextCheck, key))
+      if (row.nextCheck) await txn.delete([dueKey(row.nextCheck, key), notifyKey(row.nextCheck, key)])
       const nextCheck = delayMs === null ? undefined : Date.now() + delayMs
-      await txn.put(key, { ...row, ...update, nextCheck })
+      const updated = { ...row, ...update, nextCheck }
+      await txn.put(key, updated)
       if (nextCheck !== undefined) {
-        await txn.put(dueKey(nextCheck, key), key)
+        await txn.put((isTerminal(updated) ? notifyKey : dueKey)(nextCheck, key), key)
         const alarm = await txn.getAlarm()
         if (alarm === null || nextCheck < alarm) await txn.setAlarm(nextCheck)
       }
@@ -198,6 +242,10 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       },
       1,
     )
+    // The durable notification obligation is already committed. Start its
+    // independent, bounded lane now instead of waiting behind receipt checks.
+    if (this.env.SETTLEMENT_NOTIFY_URL && this.env.SETTLEMENT_NOTIFY_SECRET)
+      this.ctx.waitUntil(this.runNotifications())
   }
 
   async broadcast(input: DoBroadcastInput): Promise<DoBroadcastResult> {
@@ -236,6 +284,9 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         const observed = await this.ctx.storage.get<DurableSettleRecord>(key) ?? record
         return { ok: true, txHash: observed.txHash, replayed: true, timeline: observed.timeline }
       }
+      const closed = await this.getSubmissionRejection(input.payer, input.nonce)
+      if (closed) return { ok: false, reason: "authorization_submission_closed",
+        ...(closed.authorizationHash === fingerprint ? { submissionRejection: closed } : {}) }
       const timeError = checkTimeWindow(
         BigInt(input.validAfter),
         BigInt(input.validBefore),
@@ -243,7 +294,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         undefined,
         submissionMarginSeconds(input.chainId),
       )
-      if (timeError) return { ok: false, reason: timeError }
+      if (timeError) throw new Error(timeError)
       const { public: publicClient, wallet } = this.clients(input.chainId)
       const account = this.getAccount(input.chainId)
       const chain = getJpycChain(input.chainId)
@@ -283,6 +334,10 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
             throw new Error("authorization_record_mismatch")
           return previous
         }
+        // A failed concurrent preparation may have closed admission while
+        // this request was awaiting RPC. Fence it in the same transaction
+        // that would allocate a relayer nonce and publish signed bytes.
+        if (await txn.get(`closed:${key}`)) throw new Error("authorization_submission_closed")
         const timeError = checkTimeWindow(
           BigInt(input.validAfter),
           BigInt(input.validBefore),
@@ -295,8 +350,8 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         const storedNonce = await txn.get<number>(nonceKey)
         const nonce = Math.max(storedNonce ?? 0, pendingNonce)
         // Bound a chain's unmined backlog. Do not allocate another nonce or
-        // strand a fresh signature behind an arbitrarily long queue. The EC
-        // journal can retry the same approval after capacity becomes available.
+        // strand a fresh signature behind an arbitrarily long queue. Rejection
+        // closes this approval; EC can request a new approval after capacity frees.
         if (nonce - minedNonce >= 128) throw new Error("relayer_capacity_reached")
         // Local secp256k1 signing only. A failed commit allocates no nonce and
         // emits no transaction; retries re-enter this atomic allocation.
@@ -348,7 +403,9 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
           ? error.message
           : (parseEip3009RevertReason(error) ?? "broadcast_preparation_failed")
       console.error(JSON.stringify({ ev: "broadcast.error", chainId: input.chainId, reason }))
-      return { ok: false, reason }
+      // Includes ambiguous storage-commit errors and concurrent winners.
+      // Once signed bytes exist, this gate returns their hash, never a rejection.
+      return this.rejectBeforeBroadcast(input, reason)
     }
   }
 
@@ -384,16 +441,17 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   }
 
   override async alarm() {
+    const notifications = this.runNotifications()
     // Indexed due queue, bounded work. Never scan every historical payment.
     const due = await this.ctx.storage.list<string>({
       prefix: "due:",
       end: `due:${String(Date.now() + 1).padStart(16, "0")}`,
-      limit: 24,
+      limit: 64,
     })
     const entries = [...due.entries()]
     let next = 0
     await Promise.all(
-      Array.from({ length: Math.min(4, entries.length) }, async () => {
+      Array.from({ length: Math.min(8, entries.length) }, async () => {
         while (next < entries.length) {
           const [due, key] = entries[next++]!
           const row = await this.ctx.storage.get<DurableSettleRecord>(key)
@@ -412,16 +470,79 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
         }
       }),
     )
+    await notifications
+    // Includes confirmations discovered during this alarm, and old-version
+    // terminal rows migrated from the receipt queue above.
+    await this.runNotifications()
+    await this.rescheduleAlarm()
+  }
+
+  private async rescheduleAlarm() {
     await this.ctx.storage.transaction(async (txn) => {
-      const first = [...(await txn.list<string>({ prefix: "due:", limit: 1 })).keys()][0]
-      if (first) await txn.setAlarm(Math.max(Date.now() + 100, Number(first.split(":")[1])))
+      const heads = await Promise.all(["due:", "notify:"].map(prefix => txn.list<string>({ prefix, limit: 1 })))
+      const times = heads.flatMap(head => [...head.keys()].map(key => Number(key.split(":")[1])))
+      if (times.length) await txn.setAlarm(Math.max(Date.now() + 100, Math.min(...times)))
     })
+  }
+
+  /** One bounded notification pump per object. Slow/unmined transactions
+   * cannot occupy these slots. Durable leases survive a crash; duplicate
+   * callbacks are safe because the receiver verifies and commits idempotently. */
+  private runNotifications(): Promise<void> {
+    if (this.notificationPump) return this.notificationPump
+    const work = this.drainNotifications().finally(() => {
+      this.notificationPump = undefined
+    })
+    this.notificationPump = work
+    return work
+  }
+
+  private async drainNotifications() {
+    const deadline = Date.now() + 20_000
+    let claimed = 0
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (Date.now() < deadline && claimed++ < 64) {
+        const entry = await this.ctx.storage.transaction(async txn => {
+          const first = [...await txn.list<string>({
+            prefix: "notify:", end: `notify:${String(Date.now() + 2).padStart(16, "0")}`, limit: 1,
+          })][0]
+          if (!first) return null
+          const [index, key] = first
+          const row = await txn.get<DurableSettleRecord>(key)
+          await txn.delete(index)
+          if (!row || !row.nextCheck || notifyKey(row.nextCheck, key) !== index || !isTerminal(row) || !row.notifyPending)
+            return { stale: true as const }
+          const nextCheck = Date.now() + 15_000
+          const updated = { ...row, nextCheck, notificationAttempts: (row.notificationAttempts ?? 0) + 1,
+            timeline: { notificationStartedAt: Date.now(), ...row.timeline } }
+          await txn.put({ [key]: updated, [notifyKey(nextCheck, key)]: key })
+          const alarm = await txn.getAlarm()
+          if (alarm === null || nextCheck < alarm) await txn.setAlarm(nextCheck)
+          return { stale: false as const, key, row: updated }
+        })
+        if (!entry) return
+        if (entry.stale) continue
+        const { key, row } = entry
+        try {
+          await this.notify(row)
+          await this.schedule(key, { notifyPending: false,
+            timeline: { ...row.timeline, notificationAcknowledgedAt: Date.now() } }, null, row)
+        } catch {
+          // Receipt is already confirmed. Retry delivery promptly, without
+          // repeating chain scans or borrowing an unconfirmed-payment slot.
+          const delay = Math.min(15_000, 1_000 * 2 ** Math.min(4, (row.notificationAttempts ?? 1) - 1))
+          await this.schedule(key, { lastError: "notification_unavailable" }, delay, row)
+        }
+      }
+    }))
+    await this.rescheduleAlarm()
   }
 
   private async checkRecord(key: string, row: DurableSettleRecord) {
     if (row.state === "confirmed" || row.state === "reverted") {
-      if (row.notifyPending) await this.notify(row)
-      await this.schedule(key, { notifyPending: false }, null, row)
+      // Upgrade existing due-index records in place; never drop a callback
+      // during a rolling deployment.
+      await this.schedule(key, {}, row.notifyPending ? 1 : null, row)
       return
     }
     if (!row.input) {
@@ -436,9 +557,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       nonce: row.input.nonce,
     }
     for (const hash of [row.txHash, ...(row.previousTransactions ?? []).map((tx) => tx.txHash)]) {
-      const result = await waitAndVerifyTransfer(client, row.chainId, hash, expected, {
-        receiptTimeoutMs: 1_000,
-      })
+      const result = await observeTransferReceipt(client, row.chainId, hash, expected)
       if (result.ok) {
         await this.recordReceipt(row.payer, row.nonce, hash, {
           receiptObservedAt: Date.now(),
@@ -580,6 +699,7 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       nonce: row.nonce,
       txHash: row.txHash,
       timestamp: Date.now(),
+      timeline: row.timeline,
     })
     const key = await crypto.subtle.importKey(
       "raw",

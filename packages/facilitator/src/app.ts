@@ -80,6 +80,7 @@ export interface AppDeps {
       payer: string,
       nonce: string,
     ): Promise<{ txHash: string; broadcastAt: number; timeline?: import("./settle-runner.js").SettlementTimeline } | null>
+    rejection?(chainId: number, payer: string, nonce: string): Promise<import("./settle-runner.js").SubmissionRejection | null>
   }
 }
 
@@ -261,7 +262,10 @@ export function createApp(deps: AppDeps) {
         parsed.paymentRequirements,
         parsed.receiptTimeoutMs === undefined ? undefined : { receiptTimeoutMs: parsed.receiptTimeoutMs },
       )
-      const extensions = result.timeline ? { "jpyc.settlementTimeline": result.timeline } : undefined
+      const extensions = {
+        ...(result.timeline ? { "jpyc.settlementTimeline": result.timeline } : {}),
+        ...(result.submissionRejection ? { "jpyc.submissionRejection": result.submissionRejection } : {}),
+      }
 
       if (!result.verify.ok) {
         const body: SettlementResponse = {
@@ -366,6 +370,8 @@ export function createApp(deps: AppDeps) {
       if (cached?.settled && cached.txHash) {
         return c.json({ known: true, txHash: cached.txHash, source: "cache" })
       }
+      const rejection = await deps.settleRecords?.rejection?.(chainId, payer, nonce)
+      if (rejection) return c.json({ known: false, source: "durable", submissionRejection: rejection })
       return c.json({ known: false })
     } catch (e) {
       if (e instanceof X402Error) {

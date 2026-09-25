@@ -59,6 +59,8 @@ export type VerifyFail = {
   reason: string
   /** Best-effort recovered payer; only set when signature recovery succeeded. */
   payer?: Address
+  /** Local signature and requirement binding passed before an RPC failure. */
+  signatureVerified?: true
 }
 
 export type VerifyResult = VerifyOk | VerifyFail
@@ -247,6 +249,7 @@ export async function verifyExactPayment(
       ok: false,
       reason: `${X402_ERROR_CODES.unexpected_verify_error}: balance read failed`,
       payer: a.from as Address,
+      signatureVerified: true,
     }
   }
   if (balance < valueAtomic) {
@@ -288,6 +291,7 @@ export async function verifyExactPayment(
         ? `${X402_ERROR_CODES.invalid_transaction_state}: simulation reverted`
         : `${X402_ERROR_CODES.unexpected_verify_error}: simulation unavailable`,
       payer: a.from as Address,
+      signatureVerified: true,
     }
   }
 

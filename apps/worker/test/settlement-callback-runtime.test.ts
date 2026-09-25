@@ -26,7 +26,7 @@ describe("merchant callback through native workerd fetch", () => {
         await state.storage.put(`due:${"1".padStart(16, "0")}:${key}`, key)
         await instance.alarm()
         expect(await state.storage.get(key)).toMatchObject({ state: "confirmed", notifyPending: status !== 204 })
-        expect((await state.storage.list({ prefix: "due:" })).size).toBe(status === 204 ? 0 : 1)
+        expect((await state.storage.list({ prefix: "notify:" })).size).toBe(status === 204 ? 0 : 1)
         await state.storage.deleteAll()
       })
       fetchMock.assertNoPendingInterceptors()
