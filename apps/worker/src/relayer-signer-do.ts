@@ -567,7 +567,11 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
   }
 
   private async notify(row: DurableSettleRecord) {
-    if (!this.env.SETTLEMENT_NOTIFY_URL || !this.env.SETTLEMENT_NOTIFY_SECRET) return
+    if (!this.env.SETTLEMENT_NOTIFY_URL || !this.env.SETTLEMENT_NOTIFY_SECRET) {
+      console.warn(JSON.stringify({ ev: "settlement.notify_disabled", chainId: row.chainId,
+        hasUrl: Boolean(this.env.SETTLEMENT_NOTIFY_URL), hasSecret: Boolean(this.env.SETTLEMENT_NOTIFY_SECRET) }))
+      return
+    }
     const url = new URL(this.env.SETTLEMENT_NOTIFY_URL)
     if (url.protocol !== "https:") throw new Error("invalid_recovery_callback")
     const body = JSON.stringify({
@@ -589,13 +593,20 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
     ]
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("")
+    const startedAt = Date.now()
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Settlement-Signature": signature },
       body,
       signal: AbortSignal.timeout(10_000),
       redirect: "error",
+    }).catch(() => {
+      console.warn(JSON.stringify({ ev: "settlement.notify_failed", chainId: row.chainId,
+        txHash: row.txHash, durationMs: Date.now() - startedAt, reason: "network_or_timeout" }))
+      throw new Error("recovery_callback_failed")
     })
+    console.info(JSON.stringify({ ev: "settlement.notify_result", chainId: row.chainId,
+      txHash: row.txHash, status: response.status, durationMs: Date.now() - startedAt }))
     if (!response.ok) throw new Error("recovery_callback_failed")
   }
 }
