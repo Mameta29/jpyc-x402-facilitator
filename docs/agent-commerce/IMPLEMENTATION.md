@@ -5,7 +5,7 @@ Started 2026-09-26 at the user’s explicit request. Design 35 is the architectu
 ## Baseline and provenance
 
 - Base commit: `9fa9cb121acbd6535ccc9e55f76d9a98f2914e73`.
-- Branch: `feat/ethtokyo-agent-commerce`, in an isolated worktree.
+- Branch: `ETHGlobalTokyo2026`, in an isolated worktree.
 - Original working trees are preserved. Existing uncommitted changes were **not** automatically imported.
 - Design 35/36, interfaces, and signature fixtures predate implementation; the first EC documentation commit imports that baseline only.
 - Local inventory of pre-existing edits and patches: `/private/tmp/ethtokyo-agent-commerce-baseline`.
