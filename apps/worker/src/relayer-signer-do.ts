@@ -600,9 +600,13 @@ export class RelayerSignerDO extends DurableObject<WorkerEnv> {
       body,
       signal: AbortSignal.timeout(10_000),
       redirect: "error",
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message
+        .replace(/https?:\/\/\S+/g, "[url]")
+        .replace(/\b(?:0x)?[a-fA-F0-9]{64,}\b/g, "[redacted]")
+        .slice(0, 240) : "unknown_fetch_error"
       console.warn(JSON.stringify({ ev: "settlement.notify_failed", chainId: row.chainId,
-        txHash: row.txHash, durationMs: Date.now() - startedAt, reason: "network_or_timeout" }))
+        txHash: row.txHash, durationMs: Date.now() - startedAt, reason: "network_or_timeout", detail }))
       throw new Error("recovery_callback_failed")
     })
     console.info(JSON.stringify({ ev: "settlement.notify_result", chainId: row.chainId,
