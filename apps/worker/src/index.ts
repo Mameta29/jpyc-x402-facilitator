@@ -18,7 +18,7 @@
  *   - Rate limit / nonce dedupe / HMAC replay are per-isolate best-effort.
  *     Cloudflare runs many isolates concurrently, so a caller spreading load
  *     across isolates weakens these. The authoritative broadcast serialization
- *     is the per-chain RelayerSignerDO (`blockConcurrencyWhile`), and the
+ *     is the per-chain RelayerSignerDO (atomic durable nonce allocation), and the
  *     JPYC contract's `authorizationState` is the final replay guard — a
  *     duplicate broadcast costs at most one revert's gas, never correctness.
  *     Operators MUST also enforce per-IP / per-route limits at the Cloudflare
@@ -45,6 +45,7 @@ import {
 import { caip2ToEvmChainId } from "@jpyc-x402/shared"
 import type { Hex } from "viem"
 import type { WorkerEnv } from "./env"
+import { relayerChainKeys } from "./relayer-config"
 import { configEnvironment } from "./config-env"
 import { workerRpcResolver } from "./rpc"
 import { WorkerSettleRunner } from "./worker-settle-runner"
@@ -102,6 +103,7 @@ function buildBundle(env: WorkerEnv): CtorBundle {
   // would broadcast.
   const signerProvider = privateKeyRelayerProvider({
     defaultPrivateKey: env.RELAYER_PRIVATE_KEY as Hex,
+    perChain: relayerChainKeys(env),
   })
   const facilitator = new ExactEvmFacilitator({
     enabledChainIds: config.enabledChainIds,
@@ -153,6 +155,11 @@ export default {
           }
           return await stub.getSettleRecord(payer, nonce)
         },
+        rejection: async (chainId, payer, nonce) => {
+          const id = env.RELAYER.idFromName(`chain-${chainId}`)
+          const stub = env.RELAYER.get(id) as DurableObjectStub<import("./relayer-signer-do").RelayerSignerDO>
+          return await stub.getSubmissionRejection(payer, nonce)
+        },
       },
     })
     return app.fetch(request, env as unknown as Record<string, unknown>, ctx)
@@ -170,6 +177,7 @@ export default {
       publicClient: buildPublicClient(chainId, workerRpcResolver(env)),
       account: privateKeyRelayerProvider({
         defaultPrivateKey: env.RELAYER_PRIVATE_KEY as Hex,
+        perChain: relayerChainKeys(env),
       }).forChain(chainId),
     }))
     ctx.waitUntil(

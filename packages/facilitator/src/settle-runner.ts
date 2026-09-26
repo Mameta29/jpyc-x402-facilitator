@@ -3,8 +3,8 @@
  *
  * The Hono app shouldn't care whether settle runs:
  *   - directly in-process (Node, single-machine: Fly max=1, Render Starter)
- *   - through a Cloudflare Durable Object (Workers, where DO `blockConcurrencyWhile`
- *     gives us strong nonce serialization across simultaneous Workers requests)
+ *   - through a Cloudflare Durable Object (Workers, where a storage transaction
+ *     allocates a nonce and journals signed bytes before any broadcast)
  *
  * Both paths satisfy this interface. The app calls `settle(...)` and gets back
  * a result; the implementation owns the concurrency story.
@@ -18,20 +18,18 @@
  *   `blockConcurrencyWhile` callback has a hard 30-second timeout — the
  *   Durable Object is *reset* if exceeded.
  *
- *   Splitting the work is safe because viem's writeContract internally calls
- *   `getTransactionCount({ blockTag: "pending" })` which counts broadcast-but-
- *   unmined txs. Once we've broadcast tx N (next nonce N+1 is reserved on
- *   the relayer), the next settle can broadcast in parallel without nonce
- *   conflict — even if tx N hasn't mined yet.
+ *   The Workers path reserves nonces durably; RPC pending counts alone are not
+ *   sufficient when a send response is lost or concurrent requests overlap.
  *
  *   So the SettleRunner contract is:
- *     1. broadcast() — must be serialised per (chainId, signer) for nonce safety
+ *     1. broadcast() — must allocate nonces atomically per (chainId, signer)
  *     2. waitForReceipt() — fully concurrent
  */
 
 import {
   ExactEvmFacilitator,
   TRANSFER_EVENT_SIGNATURE,
+  AUTHORIZATION_USED_EVENT_SIGNATURE,
   splitSignatureComponents,
   type SettleResult,
   type VerifyResult,
@@ -49,6 +47,7 @@ import {
   type Hex,
   type PublicClient,
   type WalletClient,
+  type TransactionReceipt,
   formatEther,
 } from "viem"
 
@@ -79,7 +78,7 @@ export type BroadcastResult = BroadcastOk | BroadcastFail
  * - InProcessSettleRunner (Node) is the trivial implementation that holds an
  *   in-process mutex per chainId.
  * - DurableObjectSettleRunner (Workers) forwards `broadcast()` to a DO that
- *   uses `ctx.blockConcurrencyWhile` for serialization, while
+ *   uses durable transactions for local nonce allocation and signing, while
  *   `waitForReceipt()` runs back in the parent Worker for parallelism.
  */
 export interface SettleRunner {
@@ -87,7 +86,35 @@ export interface SettleRunner {
   settle(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
-  ): Promise<{ verify: VerifyResult; settle?: SettleResult }>
+    options?: { receiptTimeoutMs?: number },
+  ): Promise<{ verify: VerifyResult; settle?: SettleResult; timeline?: SettlementTimeline; submissionRejection?: SubmissionRejection }>
+}
+
+/** A durable fence, not a timeout inference. The relayer committed this
+ * rejection atomically against transaction preparation and will NEVER submit
+ * this payer/authorization nonce, including late or concurrent requests. */
+export interface SubmissionRejection {
+  version: 1
+  state: "not_submitted"
+  chainId: number
+  payer: string
+  nonce: string
+  authorizationHash: string
+  closedAt: number
+  reason: string
+}
+
+/** Server timestamps (milliseconds), not customer-facing payment states. */
+export interface SettlementTimeline {
+  receivedAt?: number
+  verifiedAt?: number
+  queueEnteredAt?: number
+  broadcastStartedAt?: number
+  broadcastAt?: number
+  receiptObservedAt?: number
+  blockTimestamp?: number
+  notificationStartedAt?: number
+  notificationAcknowledgedAt?: number
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -105,6 +132,7 @@ export class InProcessSettleRunner implements SettleRunner {
   async settle(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
+    options?: { receiptTimeoutMs?: number },
   ): Promise<{ verify: VerifyResult; settle?: SettleResult }> {
     // facilitator.settle already does verify → broadcast → wait → verify
     // event, but it broadcasts and waits inside the same call. We need to
@@ -115,7 +143,7 @@ export class InProcessSettleRunner implements SettleRunner {
     // simpler code. Hosts that need higher throughput can implement their own
     // SettleRunner that splits broadcast/receipt explicitly.
     const chainId = caip2ToEvmChainId(requirements.network)
-    return await this.runSerialised(chainId, () => this.facilitator.settle(payload, requirements))
+    return await this.runSerialised(chainId, () => this.facilitator.settle(payload, requirements, options))
   }
 
   private async runSerialised<T>(chainId: number, fn: () => Promise<T>): Promise<T> {
@@ -180,10 +208,9 @@ export async function waitAndVerifyTransfer(
   publicClient: PublicClient,
   chainId: number,
   txHash: Hex,
-  expected: { payer: Address; payTo: Address; valueAtomic: bigint },
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
   opts: { receiptTimeoutMs?: number } = {},
 ): Promise<SettleResult> {
-  const chain = getJpycChain(chainId)
   let receipt
   try {
     receipt = await publicClient.waitForTransactionReceipt({
@@ -191,21 +218,64 @@ export async function waitAndVerifyTransfer(
       timeout: opts.receiptTimeoutMs ?? 120_000,
     })
   } catch (e) {
-    return { ok: false, reason: `receipt wait failed: ${(e as Error).message}`, txHash }
+    return { ok: false, reason: opts.receiptTimeoutMs ? "receipt_pending" : `receipt wait failed: ${(e as Error).message}`, txHash }
   }
 
+  return verifyTransferReceipt(publicClient, chainId, txHash, expected, receipt)
+}
+
+/** Recovery observes once, without creating a block watcher or sleeping in
+ * a shared recovery slot. A missing/failed receipt remains unresolved. */
+export async function observeTransferReceipt(
+  publicClient: PublicClient,
+  chainId: number,
+  txHash: Hex,
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
+): Promise<SettleResult> {
+  let receipt
+  try {
+    receipt = await publicClient.getTransactionReceipt({ hash: txHash })
+  } catch {
+    return { ok: false, reason: "receipt_pending", txHash }
+  }
+  return verifyTransferReceipt(publicClient, chainId, txHash, expected, receipt)
+}
+
+async function verifyTransferReceipt(
+  publicClient: PublicClient,
+  chainId: number,
+  txHash: Hex,
+  expected: { payer: Address; payTo: Address; valueAtomic: bigint; nonce?: Hex },
+  receipt: TransactionReceipt,
+): Promise<SettleResult> {
+  const chain = getJpycChain(chainId)
+
+  if (receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) {
+    return { ok: false, reason: "receipt transaction hash mismatch", txHash }
+  }
+  let blockTimestampSec = 0n
+  try {
+    const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
+    if (block.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()) {
+      return { ok: false, reason: "receipt_block_mismatch", txHash }
+    }
+    blockTimestampSec = block.timestamp
+  } catch {
+    return { ok: false, reason: "receipt_block_unavailable", txHash }
+  }
   if (receipt.status !== "success") {
     return { ok: false, reason: "tx reverted on-chain", txHash }
   }
 
   const matched = receipt.logs.some((log) => {
+    if (log.removed) return false
     if (log.address.toLowerCase() !== chain.jpycAddress.toLowerCase()) return false
     if (log.topics[0] !== TRANSFER_EVENT_SIGNATURE) return false
     const from = `0x${log.topics[1]?.slice(-40)}`
     const to = `0x${log.topics[2]?.slice(-40)}`
     if (from.toLowerCase() !== expected.payer.toLowerCase()) return false
     if (to.toLowerCase() !== expected.payTo.toLowerCase()) return false
-    return BigInt(log.data) === expected.valueAtomic
+    try { return BigInt(log.data) === expected.valueAtomic } catch { return false }
   })
   if (!matched) {
     return {
@@ -214,13 +284,13 @@ export async function waitAndVerifyTransfer(
       txHash,
     }
   }
-
-  let blockTimestampSec = 0n
-  try {
-    const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber })
-    blockTimestampSec = block.timestamp
-  } catch {
-    // best effort
+  if (expected.nonce && !receipt.logs.some(log =>
+    !log.removed &&
+    log.address.toLowerCase() === chain.jpycAddress.toLowerCase() &&
+    log.topics[0] === AUTHORIZATION_USED_EVENT_SIGNATURE &&
+    log.topics[1]?.toLowerCase() === `0x${expected.payer.slice(2).toLowerCase().padStart(64, "0")}` &&
+    log.topics[2]?.toLowerCase() === expected.nonce!.toLowerCase())) {
+    return { ok: false, reason: "AuthorizationUsed event did not match expected (payer, nonce)", txHash }
   }
 
   const gasCostWei = receipt.gasUsed * receipt.effectiveGasPrice

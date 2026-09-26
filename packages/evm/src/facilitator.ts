@@ -95,6 +95,7 @@ export class ExactEvmFacilitator {
   async settle(
     payload: PaymentPayload,
     required: PaymentRequirements,
+    options?: { receiptTimeoutMs?: number },
   ): Promise<{ verify: VerifyResult; settle?: SettleResult }> {
     const verifyResult = await this.verify(payload, required)
     if (!verifyResult.ok) return { verify: verifyResult }
@@ -107,6 +108,7 @@ export class ExactEvmFacilitator {
       verifyResult,
       payload.payload.signature as `0x${string}`,
       { publicClient, walletClient, relayerAccount: account },
+      options,
     )
     return { verify: verifyResult, settle: settleResult }
   }

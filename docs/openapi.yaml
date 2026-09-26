@@ -56,18 +56,26 @@ paths:
       summary: Verify and broadcast a payment authorization.
       description: |
         Idempotency: if the same `(network, payer, nonce)` triple was settled
-        successfully within the in-memory NonceCache TTL (default 5 min), the
+        successfully within the in-memory NonceCache TTL (default 10 min), the
         cached transaction hash is returned with `success: true` and **no
-        re-broadcast occurs**. The cache is best-effort — losing it (process
-        restart, isolate eviction) is safe because EIP-3009's
-        `_authorizationStates` mapping is the authoritative source: a duplicate
-        broadcast simply reverts on-chain.
+        re-broadcast occurs**. Workers also persist the broadcast hash for 72
+        hours in the per-chain Durable Object. Identical signed authorizations
+        can resume receipt verification after mining or expiry without another
+        broadcast. A used nonce alone does not prove payment: a successful
+        Workers recovery verifies matching AuthorizationUsed and Transfer
+        events in a successful receipt.
+
+        Before a new broadcast, more than 30 seconds must remain on Ethereum
+        and Sepolia, or 15 seconds on other supported chains. The optional
+        receiptTimeoutMs only bounds receipt waiting; it does not cancel a
+        transaction. receipt_pending with a transaction hash means the result
+        is still being confirmed. Continue checking the same transaction.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/VerifyRequest"
+              $ref: "#/components/schemas/SettleRequest"
       responses:
         "200":
           description: |
@@ -90,6 +98,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SettlementResponse"
+  /settle-status:
+    post:
+      summary: Look up an existing broadcast without sending a transaction.
+      description: |
+        Uses the same HMAC authentication as /settle when configured. Workers
+        consult Durable Object storage before the process cache. known means
+        a broadcast hash is recorded, not that payment has succeeded. A
+        receipt must still be verified. A missing record is not proof of no
+        broadcast, for example if RPC submission succeeded before storage did.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [network, payer, nonce]
+              properties:
+                network: { $ref: "#/components/schemas/Caip2" }
+                payer: { $ref: "#/components/schemas/Address" }
+                nonce: { type: string, pattern: "^0x[a-fA-F0-9]{64}$" }
+      responses:
+        "200":
+          description: Broadcast lookup result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [known]
+                properties:
+                  known: { type: boolean }
+                  txHash: { type: string }
+                  broadcastAt: { type: integer }
+                  source: { type: string, enum: [durable, cache] }
+                  timeline: { $ref: "#/components/schemas/SettlementTimeline" }
   /health:
     get:
       summary: Liveness probe.
@@ -180,6 +222,31 @@ components:
         isValid: { type: boolean }
         invalidReason: { type: string }
         payer: { $ref: "#/components/schemas/Address" }
+    SettleRequest:
+      allOf:
+        - $ref: "#/components/schemas/VerifyRequest"
+        - type: object
+          properties:
+            receiptTimeoutMs:
+              type: integer
+              minimum: 1000
+              maximum: 120000
+              description: Optional receipt wait budget in milliseconds. Defaults to 120000.
+    SettlementTimeline:
+      type: object
+      description: |
+        Optional diagnostic timestamps, in Unix milliseconds. Fields may be
+        absent for older broadcasts. broadcastAt records RPC acknowledgement,
+        not proof of global mempool visibility. blockTimestamp is chain time;
+        differences from server clocks are approximate.
+      properties:
+        receivedAt: { type: integer }
+        verifiedAt: { type: integer }
+        queueEnteredAt: { type: integer }
+        broadcastStartedAt: { type: integer }
+        broadcastAt: { type: integer }
+        receiptObservedAt: { type: integer }
+        blockTimestamp: { type: integer }
     SettlementResponse:
       type: object
       required: [success, transaction, network]
@@ -187,9 +254,13 @@ components:
         success: { type: boolean }
         errorReason: { type: string }
         payer: { $ref: "#/components/schemas/Address" }
-        transaction: { type: string, description: "tx hash; empty string on failure" }
+        transaction: { type: string, description: "Known transaction hash, including pending results; empty if unknown." }
         network: { $ref: "#/components/schemas/Caip2" }
         amount: { $ref: "#/components/schemas/DecimalString" }
+        extensions:
+          type: object
+          properties:
+            jpyc.settlementTimeline: { $ref: "#/components/schemas/SettlementTimeline" }
     SupportedKind:
       type: object
       required: [x402Version, scheme, network]

@@ -12,12 +12,15 @@
     "head_sampling_rate": 1
   },
   "placement": {
-    "mode": "smart"
+    "mode": "off"
   },
   "vars": {
     "NODE_ENV": "staging",
     "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
-    "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
+    "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
+    "DURABLE_SETTLEMENT_CHAINS": "1001,11155111",
+    "STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK": "true",
+    "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
   },
   "durable_objects": {
     "bindings": [
@@ -33,7 +36,8 @@
   "env": {
     "staging": {
       "name": "jpyc-x402-facilitator-staging",
-      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
+      // Match the placement used by the real staging load measurements.
+      "placement": { "mode": "off" },
       "routes": [
         {
           "pattern": "facilitator-staging.jpyc-service.com/*",
@@ -43,7 +47,10 @@
       "vars": {
         "NODE_ENV": "staging",
         "ENABLED_NETWORKS": "eip155:80002,eip155:11155111,eip155:43113,eip155:1001",
-        "CORS_ORIGINS": "https://stg-ec.jpyc-service.com"
+        "CORS_ORIGINS": "https://stg-ec.jpyc-service.com",
+        "DURABLE_SETTLEMENT_CHAINS": "1001,11155111",
+        "STAGING_SEPOLIA_PUBLIC_RPC_FALLBACK": "true",
+        "SETTLEMENT_NOTIFY_URL": "https://stg-ec.jpyc-service.com/api/internal/settlement-observed"
       },
       "durable_objects": {
         "bindings": [
@@ -59,7 +66,7 @@
     },
     "production": {
       "name": "jpyc-x402-facilitator-production",
-      "placement": { "mode": "smart", "region": "aws:ap-northeast-1" },
+      "placement": { "region": "aws:ap-northeast-1" },
       "routes": [
         {
           "pattern": "facilitator.jpyc-service.com/*",
@@ -69,7 +76,8 @@
       "vars": {
         "NODE_ENV": "production",
         "ENABLED_NETWORKS": "eip155:1,eip155:137,eip155:43114,eip155:8217",
-        "CORS_ORIGINS": "https://ec.jpyc-service.com"
+        "CORS_ORIGINS": "https://ec.jpyc-service.com",
+        "SETTLEMENT_NOTIFY_URL": "https://ec.jpyc-service.com/api/internal/settlement-observed"
       },
       "durable_objects": {
         "bindings": [

@@ -125,8 +125,11 @@ export const verifyResponseSchema = z.object({
 })
 export type VerifyResponse = z.infer<typeof verifyResponseSchema>
 
-export const settleRequestSchema = verifyRequestSchema
-export type SettleRequest = VerifyRequest
+export const settleRequestSchema = verifyRequestSchema.extend({
+  /** Opt-in short synchronous wait; timeout is pending, never proof of failure. */
+  receiptTimeoutMs: z.number().int().min(1000).max(120_000).optional(),
+})
+export type SettleRequest = z.infer<typeof settleRequestSchema>
 
 export const settlementResponseSchema = z.object({
   success: z.boolean(),
