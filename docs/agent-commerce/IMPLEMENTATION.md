@@ -17,7 +17,7 @@ Polygon PoS mainnet (137) for device/public-chain acceptance; fixed MetaMask Man
 
 ## Acceptance evidence
 
-Implementation in progress. No wallet permission, World login, Intercepta live screening, public-chain deployment, swap, or completed EC purchase is claimed by this document. Each will be recorded separately.
+The first delivery slice is implemented with local automated tests and two EC merchant orders on a Polygon fork. Real MetaMask permission acceptance, live World/Intercepta, public deployment and public-chain purchases remain unverified. The user will perform the MetaMask device check later. See [runtime/deployment instructions](./POLYGON.md); local/fork results are not public purchase evidence.
 
 ## External setup
 
@@ -52,3 +52,11 @@ The pinned Polygon fork passed nine Gate checks using the deployed JPYC (18 deci
 Nine cross-repository checks also passed: the facilitator recovered the exact original transaction after a deliberately lost send response and a SQLite restart, paid once, then recovered owner-signed policy update/revoke through the same durable nonce lane. These results use manually signed test parents and M/R/P/H attestations. They do not establish wallet 7715, World, Intercepta, independent live price, EC order completion or public deployment acceptance.
 
 Public deployment manifests now require the configured relayer address to match. Four deployment tests include absent/mismatched relayers; 58 EVM and six Node server tests pass after the protocol update. See [Polygon operation instructions](./POLYGON.md) and `evidence/polygon-fork-recovery.json`.
+
+## Final local verification
+
+167 tests pass across shared (41), EVM (58), HTTP facilitator (46) and Node (22); the complete workspace builds. Node startup adds Polygon-only production manifests, fixed HTTPS transports, HMAC configuration checks and test-only loopback exceptions. The Docker dependency/runtime stages now contain the protocol tarball; environment files and SQLite state are excluded from the image context. Docker image execution is pending because no daemon is available in this environment.
+
+[EC flow evidence](./evidence/polygon-ec-flow.json) records the isolated signer, this durable runner, two finalized merchant orders, fresh controlled World approval of a period exception, actual fork USDC swap/refund and recovery after both lost RPC response and rolled-back EC persistence. Risk refusal releases inventory without a send; owner update retains 11,000 JPYC spending, and owner revoke stops the policy. Parents/IdP/Intercepta/price HTTP remain controlled fixtures.
+
+A repeated integration run found that a long-running local Anvil rejected finalized nonce reads with `BlockOutOfRangeError`; the runner left the already stored raw transaction pending and did not broadcast. Recreating the pinned fork with explicit `--prune-history 2048` and writable `--cache-path` made the complete test pass again. No production finality check was weakened. EC's `docs/agent-commerce/OPERATIONS.md` records the reproducer.
