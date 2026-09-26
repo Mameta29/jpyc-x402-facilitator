@@ -1,5 +1,15 @@
 # ETHGlobal Tokyo 2026 Facilitator再開メモ
 
+## 最新の再開地点（2026-09-26 22:00 JST）
+
+- **Amoy公開配備・manifest・staging購入サービスの有効化まで完了。** ECの[公開配備結果](../ethtokyo-ec/docs/agent-commerce/AMOY-BOOTSTRAP-2026-09-26.md)と[有効化証跡](../ethtokyo-ec/docs/agent-commerce/evidence/amoy-staging-activation-2026-09-26.json)を参照。clone先ではEC repoの同じファイルを開く。
+- 9取引確定、Gate `0x7ff8f1dDb0BD06D12a27F8FA1Dc8922F19d27754`、約10万test JPYCのsource所有LP、20pins/両token proxy/5quoteを照合。manifest SHA256 `9c76ef50f5d5e98a0ae551db73eef8e38f7ec4a621e44f523f608fe1fd36284e`。
+- VPS `/etc/jpyc-agent-staging/amoy-manifest.json` とVercel Preview/stagingに同じmanifestを反映。EC source454a0e09、staging eb580739、Vercel dpl_EomQkhSEjvXJK8fGAjg2xJm4eMgF READY。Facilitator code8ccd520。signer/Facilitator/worker/chat/selectorの5サービスactive・再起動0、公開health200、未認証API401、worker HMAC要求200。
+- Amoy deployerへの追加5＋5 test POLを確認し、配備後残高9.256690648019050365。別途mainnetにも5＋5 POLが届き、ユーザー明示依頼で実本番gas payer `0x8e820462744053dDB651C047C2d7A31549794f8C` へそれぞれ全額からガスを引いて補充済み。Amoy agent relayer `0x54DBc799C01d90c0E80D642F82455Ee3d8F69Dd2` とは別。初期入金・LP/配備・mainnet送金を繰り返さない。
+- 次は**LINE/Telegramでの依頼→AIの初回設定リンク→本人MetaMask/World→予算→同じ会話での再開**。実機permission/本人登録/公開注文/購入は未確認。単独の診断URLから始めるよう要求しない。通常予算OR注文専用本人承認を維持する。
+
+以下は初回引継ぎ時点の履歴。停止中/配備前の記述は上記で更新される。
+
 記録日: 2026-09-26。実装branchは **`ETHGlobalTokyo2026`**。この記録追加前のHEADは `8ccd52049c01935a8f9487c7dffdd963bd516217`。
 
 同じMacでの全体引継ぎは [EC worktreeの詳細](../ethtokyo-ec/docs/agent-commerce/HANDOFF-2026-09-26-mobile-amoy.md)。clone先ではEC repoの `docs/agent-commerce/HANDOFF-2026-09-26-mobile-amoy.md` を開く。Facilitatorの設定手順は [POLYGON](docs/agent-commerce/POLYGON.md)。
