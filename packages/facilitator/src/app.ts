@@ -29,6 +29,9 @@ import {
   caip2ToEvmChainId,
   settleRequestSchema,
   verifyRequestSchema,
+  agentVerifyRequestSchema,
+  requestsAgentCommerce,
+  paymentKeySchema,
   X402_VERSION,
   type DiscoveryResource,
   type DiscoveryResourcesResponse,
@@ -43,8 +46,11 @@ import { BalanceCache } from "./balance-cache.js"
 import { NonceCache } from "./nonce-cache.js"
 import type { SettleRunner } from "./settle-runner.js"
 import { HmacAuthenticator } from "./auth.js"
+import type { AgentCommerceHandler } from "./agent-commerce.js"
+import { bodyLimit } from "hono/body-limit"
 
 export interface AppDeps {
+  agentCommerce?: AgentCommerceHandler
   facilitator: ExactEvmFacilitator
   settleRunner: SettleRunner
   rateLimiter: RateLimiter
@@ -85,6 +91,9 @@ export interface AppDeps {
 
 export function createApp(deps: AppDeps) {
   const app = new Hono()
+
+  // Bound bodies before authentication buffers them, including 7710 contexts.
+  app.use("*", bodyLimit({ maxSize: 64 * 1024, onError: c => c.json({ error: "request_too_large" }, 413) }))
 
   app.use("*", honoLogger())
   app.use(
@@ -153,10 +162,10 @@ export function createApp(deps: AppDeps) {
 
   app.get("/supported", (c) => {
     const body: SupportedResponse = {
-      kinds: deps.facilitator.supported(),
+      kinds: [...deps.facilitator.supported(), ...(deps.agentCommerce?.supported() ?? [])],
       // "bazaar" advertises that this facilitator exposes the discovery
       // layer at GET /discovery/resources.
-      extensions: deps.discovery ? ["bazaar"] : [],
+      extensions: [...(deps.discovery ? ["bazaar"] : []), ...(deps.agentCommerce ? ["jpyc.purchase"] : [])],
       signers: deps.facilitator.signers(),
     }
     return c.json(body)
@@ -187,6 +196,10 @@ export function createApp(deps: AppDeps) {
   app.post("/verify", async (c) => {
     try {
       const json = await c.req.json()
+      if (requestsAgentCommerce(json)) {
+        if (!deps.agentCommerce) return c.json({ isValid: false, invalidReason: "unsupported_asset_transfer_method" }, 400)
+        return c.json(await deps.agentCommerce.verify(agentVerifyRequestSchema.parse(json)))
+      }
       const parsed = verifyRequestSchema.parse(json)
       const result = await deps.facilitator.verify(
         parsed.paymentPayload,
@@ -208,6 +221,13 @@ export function createApp(deps: AppDeps) {
   app.post("/settle", async (c) => {
     try {
       const json = await c.req.json()
+      if (requestsAgentCommerce(json)) {
+        if (!deps.agentCommerce) return c.json({ success: false, errorReason: "unsupported_asset_transfer_method", transaction: "", network: "eip155:11155111" }, 400)
+        const request = agentVerifyRequestSchema.parse(json)
+        const payer = request.paymentPayload.payload.delegator
+        deps.rateLimiter.consume(payer, BigInt(request.paymentRequirements.amount))
+        return c.json(await deps.agentCommerce.settle(request))
+      }
       const parsed = settleRequestSchema.parse(json)
 
       const payer = parsed.paymentPayload.payload.authorization.from as Address
@@ -332,9 +352,14 @@ export function createApp(deps: AppDeps) {
   app.post("/settle-status", async (c) => {
     try {
       const json = (await c.req.json()) as {
+        method?: unknown
         network?: unknown
         payer?: unknown
         nonce?: unknown
+      }
+      if (json.method === "erc7710") {
+        if (!deps.agentCommerce) return c.json({ error: "unsupported_asset_transfer_method" }, 400)
+        return c.json(await deps.agentCommerce.status(paymentKeySchema.parse(json)))
       }
       const network = typeof json.network === "string" ? json.network : ""
       const payer = typeof json.payer === "string" ? json.payer : ""

@@ -20,7 +20,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
@@ -34,7 +38,8 @@
     "@jpyc-x402/shared": "workspace:*",
     "hono": "^4.6.0",
     "viem": "^2.21.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@jpyc-ec/agent-commerce": "file:../../vendor/jpyc-ec-agent-commerce-0.1.0.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
