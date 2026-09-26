@@ -2,7 +2,7 @@ name: Deploy Worker (staging)
 
 on:
   push:
-    branches: [main]
+    branches: [ETHGlobalTokyo2026]
     paths:
       - "apps/worker/**"
       - "packages/**"
@@ -45,7 +45,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/worker
-          command: deploy --env staging
+          command: deploy --env staging --keep-vars
           packageManager: pnpm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
