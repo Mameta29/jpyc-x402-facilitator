@@ -22,4 +22,4 @@ for (const output of Object.values(result.metafile.outputs)) {
   }
 }
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
-await writeFile(resolve(outdir, 'version.json'), JSON.stringify({ revision, node: '22', chainId: 137 }) + '\n')
+await writeFile(resolve(outdir, 'version.json'), JSON.stringify({ revision, node: '22', chainId: 80002 }) + '\n')

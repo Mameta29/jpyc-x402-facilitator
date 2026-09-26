@@ -11,7 +11,7 @@ export async function createAgentRunner(env = process.env) {
   if (env.AGENT_COMMERCE_ENABLED !== "true") return undefined
   const required = (name: string) => { const value = env[name]; if (!value) throw new Error(`Missing ${name}`); return value }
   const manifest = JSON.parse(readFileSync(required("AGENT_DEPLOYMENT_MANIFEST"), "utf8")) as AgentManifest
-  if (manifest.chainId !== 137 && !(env.NODE_ENV === "test" && [11155111, 31337].includes(manifest.chainId))) throw new Error("Agent runtime requires Polygon (137)")
+  if (manifest.chainId !== 80002 && !(env.NODE_ENV === "test" && [11155111, 31337].includes(manifest.chainId))) throw new Error("Agent runtime requires Polygon Amoy testnet (80002)")
   const key = required("AGENT_RELAYER_PRIVATE_KEY")
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("Invalid agent relayer key")
   // A separate key prevents nonce collisions with legacy Node/Worker senders.

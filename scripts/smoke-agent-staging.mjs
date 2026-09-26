@@ -7,14 +7,14 @@ const rpc = createServer(async (req, res) => {
   let body = ''
   for await (const part of req) body += part
   const q = JSON.parse(body)
-  const answer = r => ({ jsonrpc: '2.0', id: r.id, result: r.method === 'eth_chainId' ? '0x89' : '0x0' })
+  const answer = r => ({ jsonrpc: '2.0', id: r.id, result: r.method === 'eth_chainId' ? '0x13882' : '0x0' })
   res.setHeader('content-type', 'application/json')
   res.end(JSON.stringify(Array.isArray(q) ? q.map(answer) : answer(q)))
 })
 await new Promise(resolve => rpc.listen(0, '127.0.0.1', resolve))
 const child = spawn(process.execPath, ['dist/agent-staging/facilitator.mjs'], {
   env: { PATH: process.env.PATH, NODE_ENV: 'development', HOST: '127.0.0.1', PORT: '18492',
-    ENABLED_NETWORKS: 'eip155:137', RPC_URLS_137: `http://127.0.0.1:${rpc.address().port}`,
+    ENABLED_NETWORKS: 'eip155:80002', RPC_URLS_80002: `http://127.0.0.1:${rpc.address().port}`,
     RELAYER_PRIVATE_KEY: '0x' + '1'.repeat(64) },
   stdio: ['ignore', 'pipe', 'pipe'],
 })

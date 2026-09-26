@@ -18,7 +18,7 @@ const env = () => ({
   AGENT_EC_ORIGIN: "https://shop.example.test", AGENT_EC_KEY_ID: "fac-to-ec", AGENT_EC_HMAC_SECRET: "s".repeat(32),
   AGENT_JOURNAL_PATH: join(directory, "journal.sqlite"),
 })
-beforeEach(() => { vi.clearAllMocks(); writeFileSync(manifest, JSON.stringify({ chainId: 137 })) })
+beforeEach(() => { vi.clearAllMocks(); writeFileSync(manifest, JSON.stringify({ chainId: 80002 })) })
 afterAll(() => rmSync(directory, { recursive: true, force: true }))
 
 describe("agent server deployment configuration", () => {
@@ -26,13 +26,13 @@ describe("agent server deployment configuration", () => {
     expect(await createAgentRunner({})).toBeUndefined()
     expect(mocks.verify).not.toHaveBeenCalled()
   })
-  it("accepts Polygon with a dedicated key and opens the journal only after verification", async () => {
+  it("accepts Polygon Amoy with a dedicated key and opens the journal only after verification", async () => {
     await createAgentRunner(env())
     expect(mocks.verify).toHaveBeenCalledOnce()
     expect(mocks.journal).toHaveBeenCalledWith(join(directory, "journal.sqlite"))
     expect(mocks.verify.mock.invocationCallOrder[0]).toBeLessThan(mocks.journal.mock.invocationCallOrder[0]!)
   })
-  it.each([11155111, 31337, 43114, 8217])("rejects a production manifest on chain %s", async chainId => {
+  it.each([137, 11155111, 31337, 43114, 8217])("rejects a production manifest on chain %s", async chainId => {
     writeFileSync(manifest, JSON.stringify({ chainId }))
     await expect(createAgentRunner(env())).rejects.toThrow("Polygon")
     expect(mocks.verify).not.toHaveBeenCalled()

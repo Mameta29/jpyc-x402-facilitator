@@ -24,7 +24,7 @@ const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a92
 
 export class AgentPurchaseEngine {
   constructor(readonly manifest: AgentManifest, readonly client: PublicClient, readonly relayer: Address, private readonly resolve: (ref: Hex) => Promise<unknown>) {
-    assert([137, 11155111, 31337].includes(manifest.chainId), "unsupported_agent_chain")
+    assert([80002, 11155111, 31337].includes(manifest.chainId), "unsupported_agent_chain")
     assert(manifest.contracts.length >= 5, "incomplete_deployment_manifest")
     for (const a of [manifest.gate, manifest.manager, manifest.jpyc, manifest.usdc, manifest.accountImplementation, manifest.adapter]) {
       assert(manifest.contracts.some(c => same(c.address, a)), "missing_contract_codehash")
