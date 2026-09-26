@@ -13,7 +13,7 @@
     "clean": "rm -rf dist .turbo",
     "lint": "echo 'lint via prettier at root'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests in apps/server'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
@@ -21,7 +21,8 @@
     "@jpyc-x402/facilitator": "workspace:*",
     "@jpyc-x402/shared": "workspace:*",
     "hono": "^4.6.0",
-    "viem": "^2.21.0"
+    "viem": "^2.21.0",
+    "@jpyc-ec/agent-commerce": "file:../../vendor/jpyc-ec-agent-commerce-0.1.0.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

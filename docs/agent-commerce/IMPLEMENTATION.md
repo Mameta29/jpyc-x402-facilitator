@@ -22,3 +22,13 @@ Implementation in progress. No wallet permission, World login, Intercepta live s
 ## External setup
 
 World confidential-client registration, Intercepta API key, deployment manifest, and a dedicated testnet relayer must be configured through secrets, never pasted into chat or committed. Live credentials were not found in the inspected local configuration key names.
+
+## Implemented: Node settlement
+
+The Node host supports explicit `erc7710` + `jpyc.purchase` dispatch alongside EIP-3009. The fixed-origin HMAC resolver, pinned deployment code, full Gate simulation, event/Transfer receipt checks, and SQLite WAL/FULL journal are implemented. The journal commits nonce and unsigned fields before signing, and raw bytes/hash before broadcast. Recovery only rebroadcasts identical bytes; finalized records do not expire. A reserved nonce is consumed with the original transaction even if it has expired, avoiding gaps that block later orders. The Gate will revert expired execution.
+
+134 existing shared/EVM/facilitator tests and six new persistence/restart tests pass. An actual local 7702 transaction with a deliberately lost send response was recovered after reopening SQLite, with one broadcast and exactly one payment. See `evidence/local-recovery.json`. This is not a live JPYC or sponsor-integration test.
+
+Node 22.14+ is required (`node:sqlite` is experimental on Node 22). Use a persistent writable volume and a dedicated agent relayer key. Worker/DO support is intentionally disabled and not advertised. No public deployment has occurred.
+
+Enable only with `AGENT_COMMERCE_ENABLED=true`, `AGENT_DEPLOYMENT_MANIFEST`, `AGENT_RELAYER_PRIVATE_KEY`, `AGENT_RPC_URL`, `AGENT_EC_ORIGIN`, `AGENT_EC_KEY_ID`, `AGENT_EC_HMAC_SECRET`, `AGENT_JOURNAL_PATH`, and existing `FACILITATOR_HMAC_KEYS`. The manifest must pin Gate, Manager, account implementation, adapter, enforcers, token proxy/implementation and router/factory code.

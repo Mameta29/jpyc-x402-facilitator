@@ -32,6 +32,7 @@ import {
   parseDiscoveryConfig,
 } from "@jpyc-x402/facilitator"
 import { getJpycChain } from "@jpyc-x402/shared"
+import { createAgentRunner } from "./agent-bootstrap.js"
 
 async function main() {
   const config = loadConfig()
@@ -51,6 +52,15 @@ async function main() {
   const nonceCache = new NonceCache(/* ttlSeconds */ 300)
   const balanceCache = new BalanceCache(config.relayerBalance)
   const authenticator = new HmacAuthenticator({ keys: config.hmacKeys })
+  const agentCommerce = await createAgentRunner()
+  if (agentCommerce && !authenticator.hasKeys) throw new Error("Agent commerce requires HMAC authentication")
+  let reconciling = false
+  const agentTimer = agentCommerce ? setInterval(() => {
+    if (reconciling) return
+    reconciling = true
+    void agentCommerce.reconcile().catch(() => console.error("[agent] reconciliation unavailable")).finally(() => { reconciling = false })
+  }, 5000) : undefined
+  agentTimer?.unref()
   console.info(
     `[startup] request auth: ${
       authenticator.hasKeys
@@ -85,6 +95,7 @@ async function main() {
     cors: config.cors,
     nodeEnv: config.nodeEnv,
     authenticator,
+    ...(agentCommerce ? { agentCommerce } : {}),
     discovery: parseDiscoveryConfig(process.env.X402_DISCOVERY_RESOURCES) ?? undefined,
   })
 
@@ -99,6 +110,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     console.info(`[shutdown] received ${signal}`)
     clearInterval(balanceTimer)
+    clearInterval(agentTimer)
     server.close(() => {
       console.info(`[shutdown] all in-flight requests drained, exiting clean`)
       process.exit(0)

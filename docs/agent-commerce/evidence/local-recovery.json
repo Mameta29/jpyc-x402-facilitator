@@ -1,0 +1,12 @@
+{
+  "scope": "Local real 7702/official MetaMask Manager; test token. Node SQLite restart, real transaction and receipt verification.",
+  "passed": [
+    "Gate simulation through self-hosted facilitator engine",
+    "signed raw persisted before broadcast",
+    "RPC accepted send but response deliberately lost",
+    "fresh runner and DB connection recover the original hash",
+    "Gate PurchasePaid and owner→merchant Transfer matched",
+    "exactly one token payment and one network broadcast"
+  ],
+  "transaction": "0x3b012563bfb9f8da9be3ebcd6dde3cfd18fbbc4f98a2757ae993a0dbf0a842ed"
+}
