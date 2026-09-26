@@ -11,7 +11,7 @@ export async function createAgentRunner(env = process.env) {
   if (env.AGENT_COMMERCE_ENABLED !== "true") return undefined
   const required = (name: string) => { const value = env[name]; if (!value) throw new Error(`Missing ${name}`); return value }
   const manifest = JSON.parse(readFileSync(required("AGENT_DEPLOYMENT_MANIFEST"), "utf8")) as AgentManifest
-  if (manifest.chainId !== 11155111 && !(env.NODE_ENV === "test" && manifest.chainId === 31337)) throw new Error("Only Sepolia is enabled")
+  if (![137, 11155111].includes(manifest.chainId) && !(env.NODE_ENV === "test" && manifest.chainId === 31337)) throw new Error("Only Polygon and Sepolia are enabled")
   const key = required("AGENT_RELAYER_PRIVATE_KEY")
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("Invalid agent relayer key")
   // A separate key prevents nonce collisions with legacy Node/Worker senders.

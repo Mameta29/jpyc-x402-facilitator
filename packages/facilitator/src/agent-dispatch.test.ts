@@ -65,4 +65,9 @@ describe('agent HTTP dispatch, authentication and boundaries', () => {
     const result = await (await post('/settle-status', { method: 'erc7710', network: 'eip155:11155111', payer: address, gate: address, orderId: hash })).json()
     expect(result).toEqual({ known: false })
   })
+  it('reports the requested Polygon network when the agent runtime is disabled', async () => {
+    const { post } = setup(false), req = { ...requirements, network: 'eip155:137' }
+    const response = await post('/settle', { ...request, paymentRequirements: req, paymentPayload: { ...payload, accepted: req } })
+    expect(response.status).toBe(400); expect((await response.json()).network).toBe('eip155:137')
+  })
 })

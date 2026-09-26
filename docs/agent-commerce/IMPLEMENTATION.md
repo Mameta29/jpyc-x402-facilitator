@@ -13,7 +13,7 @@ Started 2026-09-26 at the user’s explicit request. Design 35 is the architectu
 
 ## First delivery slice
 
-Sepolia; fixed MetaMask Manager/account; JPYC transfer and one-hop USDC→JPYC exact-output; Node durable settlement; existing EC orders; LINE primary and thin English Telegram/Web entry. No alternative transfer or mock verification is silently substituted.
+Polygon PoS mainnet (137) for device/public-chain acceptance; fixed MetaMask Manager/account; JPYC transfer and one-hop USDC→JPYC exact-output; Node durable settlement; existing EC orders; LINE primary and thin English Telegram/Web entry. No alternative transfer or mock verification is silently substituted.
 
 ## Acceptance evidence
 
@@ -21,7 +21,7 @@ Implementation in progress. No wallet permission, World login, Intercepta live s
 
 ## External setup
 
-World confidential-client registration, Intercepta API key, deployment manifest, and a dedicated testnet relayer must be configured through secrets, never pasted into chat or committed. Live credentials were not found in the inspected local configuration key names.
+World confidential-client registration, Intercepta API key, deployment manifest, and a dedicated Polygon agent relayer must be configured through secrets, never pasted into chat or committed. Live credentials were not found in the inspected local configuration key names.
 
 ## Implemented: Node settlement
 
@@ -39,4 +39,8 @@ Authenticated `POST /agent/gate-action` accepts only typed register/update/revok
 
 Local real-chain integration now also recovers a policy update and revoke after accepted-but-lost RPC responses and SQLite restart. Both preserve their original hash, the policy is revoked on chain, and period spending survives the version update. Six HTTP dispatch tests verify authentication, body size, strict method dispatch, unsupported-runtime rejection and unknown/pending semantics. Protocol tarball 0.1.1 is pinned with source commit and SHA-256 in `vendor/agent-commerce-source.json`.
 
-Deployment checks follow the Gate's actual immutable dependencies to require validator, seven enforcers, router and factory code pins. Sepolia requires both token proxy implementation pins. Each entry supports an explicit `slot`; JPYC uses the EIP-1967 default. Circle's [FiatToken proxy implementation](https://github.com/circlefin/stablecoin-evm/blob/master/contracts/upgradeability/UpgradeabilityProxy.sol) uses `0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3`. Deployment tooling must verify the actual chain slot/code before saving a manifest.
+Deployment checks follow the Gate's actual immutable dependencies to require validator, seven enforcers, router and factory code pins. Both Polygon and Sepolia require both token proxy implementation pins. Each entry supports an explicit `slot`; JPYC uses the EIP-1967 default. Circle's [FiatToken proxy implementation](https://github.com/circlefin/stablecoin-evm/blob/master/contracts/upgradeability/UpgradeabilityProxy.sol) uses `0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3`. Deployment tooling must verify the actual chain slot/code before saving a manifest.
+
+## Polygon device target, 2026-09-26
+
+The user explicitly selected Polygon PoS mainnet (`137`, `0x89`, `eip155:137`); this overrides the Sepolia-only acceptance wording in design 35. Local and Sepolia evidence remains development evidence. The ordinary business budget OR a fresh, registered-person, exact-order World/H exception is unchanged, including period-budget overruns. Expiry, revoke, tampering and replay remain non-overridable. Polygon fork swaps do not establish MetaMask permission acceptance or a completed public purchase. See the root `HANDOFF-polygon-device-test-2026-09-26.md`.

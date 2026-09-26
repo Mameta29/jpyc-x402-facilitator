@@ -243,8 +243,8 @@ export function createApp(deps: AppDeps) {
     try {
       const json = await c.req.json()
       if (requestsAgentCommerce(json)) {
-        if (!deps.agentCommerce) return c.json({ success: false, errorReason: "unsupported_asset_transfer_method", transaction: "", network: "eip155:11155111" }, 400)
         const request = agentVerifyRequestSchema.parse(json)
+        if (!deps.agentCommerce) return c.json({ success: false, errorReason: "unsupported_asset_transfer_method", transaction: "", network: request.paymentRequirements.network }, 400)
         const payer = request.paymentPayload.payload.delegator
         deps.rateLimiter.consume(payer, BigInt(request.paymentRequirements.amount))
         return c.json(await deps.agentCommerce.settle(request))
