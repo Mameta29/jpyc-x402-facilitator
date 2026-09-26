@@ -7,6 +7,7 @@
  */
 
 import { type Chain } from "viem"
+import { estimateMaxPriorityFeePerGas } from "viem/actions"
 import {
   avalanche,
   avalancheFuji,
@@ -20,12 +21,47 @@ import {
 import { defineChain } from "viem"
 import { getJpycChain } from "@jpyc-x402/shared"
 
+// Some Ethereum RPCs return a zero tip. A short-lived payment authorization
+// must not wait behind tipped transactions until it expires. Keep the live
+// estimate when higher; apply the same floor on Sepolia for release testing.
+const MIN_ETHEREUM_PRIORITY_FEE = 100_000_000n // 0.1 gwei; paid by the relayer.
+function ethereumPaymentChain(chain: Chain): Chain {
+  return {
+    ...chain,
+    // Modern RPCs can fill the transaction in one call, bypassing fees hooks.
+    // Enforce the floor after both preparation paths, without another RPC.
+    prepareTransactionRequest: [
+      async (request) => {
+        const tip = request.maxPriorityFeePerGas
+        const cap = request.maxFeePerGas
+        if (typeof tip !== "bigint" || typeof cap !== "bigint" || tip >= MIN_ETHEREUM_PRIORITY_FEE)
+          return request
+        return {
+          ...request,
+          maxPriorityFeePerGas: MIN_ETHEREUM_PRIORITY_FEE,
+          maxFeePerGas: cap + MIN_ETHEREUM_PRIORITY_FEE - tip,
+        }
+      },
+      { runAt: ["afterFillParameters"] },
+    ],
+    fees: {
+      ...chain.fees,
+      baseFeeMultiplier: 2,
+      maxPriorityFeePerGas: async ({ client }) => {
+        // Explicitly pass the original chain to avoid recursing into this hook.
+        const estimated = await estimateMaxPriorityFeePerGas(client, { chain })
+        return estimated > MIN_ETHEREUM_PRIORITY_FEE ? estimated : MIN_ETHEREUM_PRIORITY_FEE
+      },
+    },
+  }
+}
+
 const REGISTRY: Record<number, Chain> = {
-  [mainnet.id]: mainnet,
+  [mainnet.id]: ethereumPaymentChain(mainnet),
   [polygon.id]: polygon,
   [avalanche.id]: avalanche,
   [kaia.id]: kaia,
-  [sepolia.id]: sepolia,
+  [sepolia.id]: ethereumPaymentChain(sepolia),
   [polygonAmoy.id]: polygonAmoy,
   [avalancheFuji.id]: avalancheFuji,
   [klaytnBaobab.id]: klaytnBaobab,

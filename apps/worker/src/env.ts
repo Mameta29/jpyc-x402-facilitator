@@ -24,6 +24,8 @@ export interface WorkerEnv {
   // /verify, /settle, /supported. Required in staging/production — loadConfig
   // refuses to boot without it. Set via `wrangler secret put`.
   FACILITATOR_HMAC_KEYS?: string
+  // Additional integrator keys; preserve the existing encrypted key list.
+  FACILITATOR_EXTRA_HMAC_KEYS?: string
   // Per-chain RPC URLs. Comma-separated lists for viem's fallback transport.
   // Each is optional; missing chains fall through to the public RPC baked
   // into @jpyc-x402/shared.
