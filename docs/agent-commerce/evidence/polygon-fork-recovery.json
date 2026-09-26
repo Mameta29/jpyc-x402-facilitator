@@ -1,0 +1,25 @@
+{
+  "scope": "Disposable Polygon fork only, with deployed JPYC and official MetaMask contracts. Local 7702 and test M/R/P/H signatures. Node SQLite restart, actual fork transaction and receipt verification. No public writes, wallet7715, World, Intercepta or independent price acceptance.",
+  "passed": [
+    "Gate simulation through self-hosted facilitator engine",
+    "signed raw persisted before broadcast",
+    "RPC accepted send but response deliberately lost",
+    "fresh runner and DB connection recover the original hash",
+    "Gate PurchasePaid and owner\u2192merchant Transfer matched",
+    "exactly one token payment and one network broadcast",
+    "owner-signed policy update and revoke use the same durable nonce lane",
+    "both lifecycle actions recover after RPC response loss and restart",
+    "policy revoke is on chain and spending survives version update"
+  ],
+  "transaction": "0x71bc388ddf10f99c0553bcefa0840836e06e18f1d9126e2133e53a73caeba92e",
+  "actions": [
+    {
+      "kind": "update",
+      "transaction": "0xbec72514e31d5b9a86178b8692a262ec14296992f02a6c79e18c819c5549e5e7"
+    },
+    {
+      "kind": "revoke",
+      "transaction": "0xd95b9023658b17d3b6432a0c26b37a4d13667a198318df4c1d825a3ae498bf46"
+    }
+  ]
+}

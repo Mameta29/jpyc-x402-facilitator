@@ -6,6 +6,7 @@ import { decodeEventLog, encodeFunctionData, erc20Abi, keccak256, parseAbi, type
 
 export type AgentManifest = {
   chainId: number; gate: Address; manager: Address; jpyc: Address; usdc: Address; accountImplementation: Address; adapter: Address;
+  relayer?: Address;
   contracts: { address: Address; codeHash: Hex }[];
   proxyImplementations?: { proxy: Address; implementation: Address; codeHash: Hex; slot?: Hex }[];
 }
@@ -30,6 +31,7 @@ export class AgentPurchaseEngine {
     }
     if (manifest.chainId !== 31337) {
       for (const token of [manifest.jpyc, manifest.usdc]) assert(Boolean(manifest.proxyImplementations?.some(p => same(p.proxy, token))), "missing_token_implementation_pin")
+      assert(Boolean(manifest.relayer && same(manifest.relayer, relayer)), "relayer_manifest_mismatch")
     }
   }
   async verifyDeployment() {

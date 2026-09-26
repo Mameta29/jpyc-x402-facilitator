@@ -1,8 +1,8 @@
 {
   "source": "jpyc-ec-platform/packages/agent-commerce",
-  "version": "0.1.1",
-  "sha256": "0a7c26d97106d23cc7891420a2afea0cd8bf43bed594311b388945c4c95ed0c4",
+  "version": "0.1.2",
+  "sha256": "c59eea435d0250d7ae20b826f0511b4dbb50dfb5b52ac151e348a7585adfb50a",
   "design": "35 with review 36; generated ABI and type/hash fixtures",
-  "sourceCommit": "26d0d7431d2c7712f67fecfd48bcc39c8f9b8167",
-  "package": "@jpyc-ec/agent-commerce@0.1.1"
+  "sourceCommit": "5c790eed2682d747a820dffcbd7d2c60fadbeef0",
+  "package": "@jpyc-ec/agent-commerce@0.1.2"
 }

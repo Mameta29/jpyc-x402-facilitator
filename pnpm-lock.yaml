@@ -36,8 +36,8 @@ importers:
         specifier: ^1.13.0
         version: 1.19.14(hono@4.12.18)
       '@jpyc-ec/agent-commerce':
-        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.1.tgz
-        version: file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz(typescript@5.9.3)
+        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.2.tgz
+        version: file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz(typescript@5.9.3)
       '@jpyc-x402/evm':
         specifier: workspace:*
         version: link:../../packages/evm
@@ -151,8 +151,8 @@ importers:
   packages/evm:
     dependencies:
       '@jpyc-ec/agent-commerce':
-        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.1.tgz
-        version: file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz(typescript@5.9.3)
+        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.2.tgz
+        version: file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz(typescript@5.9.3)
       '@jpyc-x402/shared':
         specifier: workspace:*
         version: link:../shared
@@ -173,8 +173,8 @@ importers:
   packages/facilitator:
     dependencies:
       '@jpyc-ec/agent-commerce':
-        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.1.tgz
-        version: file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz(typescript@5.9.3)
+        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.2.tgz
+        version: file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz(typescript@5.9.3)
       '@jpyc-x402/evm':
         specifier: workspace:*
         version: link:../evm
@@ -232,8 +232,8 @@ importers:
   packages/shared:
     dependencies:
       '@jpyc-ec/agent-commerce':
-        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.1.tgz
-        version: file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz(typescript@5.9.3)
+        specifier: file:../../vendor/jpyc-ec-agent-commerce-0.1.2.tgz
+        version: file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz(typescript@5.9.3)
       viem:
         specifier: ^2.21.0
         version: 2.48.11(typescript@5.9.3)(zod@3.25.76)
@@ -997,9 +997,9 @@ packages:
       '@types/node':
         optional: true
 
-  '@jpyc-ec/agent-commerce@file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz':
-    resolution: {integrity: sha512-zRaJvwkVj6FHLdDowFqWargPb9g3kHQwv+NwkNeBWa91MAnb3/YWQJHplOo74RXDBh9Q/eqpG7gNoJkPWGqFOQ==, tarball: file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz}
-    version: 0.1.1
+  '@jpyc-ec/agent-commerce@file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz':
+    resolution: {integrity: sha512-jjL3f7+BUJ1VxGWmIG8SapX9i5F+uFb3QRZU/5yu1WJ/aMNFdUErk/dyNir1T3yUPEQKHRH6lnPKsCq51Yg6Rw==, tarball: file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz}
+    version: 0.1.2
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -3156,7 +3156,7 @@ snapshots:
     optionalDependencies:
       '@types/node': 22.19.19
 
-  '@jpyc-ec/agent-commerce@file:vendor/jpyc-ec-agent-commerce-0.1.1.tgz(typescript@5.9.3)':
+  '@jpyc-ec/agent-commerce@file:vendor/jpyc-ec-agent-commerce-0.1.2.tgz(typescript@5.9.3)':
     dependencies:
       '@metamask/smart-accounts-kit': 2.0.0(typescript@5.9.3)(viem@2.56.9(typescript@5.9.3)(zod@3.25.76))(zod@3.25.76)
       viem: 2.56.9(typescript@5.9.3)(zod@3.25.76)
