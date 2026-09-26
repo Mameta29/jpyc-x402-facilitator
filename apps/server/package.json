@@ -2,7 +2,7 @@
   "name": "@jpyc-x402/server",
   "version": "0.1.0",
   "private": true,
-  "description": "Deployable Node + Hono server hosting the JPYC x402 facilitator. DB-free.",
+  "description": "Node + Hono x402 facilitator with an optional durable SQLite agent settlement lane.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/main.js",

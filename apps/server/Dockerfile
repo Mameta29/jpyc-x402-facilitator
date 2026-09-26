@@ -10,11 +10,12 @@ COPY packages/facilitator/package.json ./packages/facilitator/
 COPY packages/client/package.json ./packages/client/
 COPY packages/mcp/package.json ./packages/mcp/
 COPY apps/server/package.json ./apps/server/
+COPY vendor ./vendor/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm build
+RUN pnpm --filter @jpyc-x402/server... build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
@@ -23,6 +24,7 @@ RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps ./apps
+COPY --from=build /app/vendor ./vendor
 RUN pnpm install --prod --frozen-lockfile && \
     pnpm store prune && \
     rm -rf /root/.local/share/pnpm/store

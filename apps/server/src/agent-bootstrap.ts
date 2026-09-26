@@ -11,17 +11,21 @@ export async function createAgentRunner(env = process.env) {
   if (env.AGENT_COMMERCE_ENABLED !== "true") return undefined
   const required = (name: string) => { const value = env[name]; if (!value) throw new Error(`Missing ${name}`); return value }
   const manifest = JSON.parse(readFileSync(required("AGENT_DEPLOYMENT_MANIFEST"), "utf8")) as AgentManifest
-  if (![137, 11155111].includes(manifest.chainId) && !(env.NODE_ENV === "test" && manifest.chainId === 31337)) throw new Error("Only Polygon and Sepolia are enabled")
+  if (manifest.chainId !== 137 && !(env.NODE_ENV === "test" && [11155111, 31337].includes(manifest.chainId))) throw new Error("Agent runtime requires Polygon (137)")
   const key = required("AGENT_RELAYER_PRIVATE_KEY")
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("Invalid agent relayer key")
   // A separate key prevents nonce collisions with legacy Node/Worker senders.
   if (key.toLowerCase() === env.RELAYER_PRIVATE_KEY?.toLowerCase()) throw new Error("Agent and legacy relayers must use separate keys")
   const account = privateKeyToAccount(key as Hex)
-  const client = createPublicClient({ transport: http(required("AGENT_RPC_URL"), { timeout: 10000, retryCount: 1 }) })
+  const rpc = new URL(required("AGENT_RPC_URL"))
+  const localTestHttp = (url: URL) => env.NODE_ENV === "test" && url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)
+  if (rpc.protocol !== "https:" && !localTestHttp(rpc)) throw new Error("Agent RPC requires HTTPS")
+  const client = createPublicClient({ transport: http(rpc.href, { timeout: 10000, retryCount: 1 }) })
   const origin = new URL(required("AGENT_EC_ORIGIN"))
-  if (origin.protocol !== "https:" && !(env.NODE_ENV === "test" && ["127.0.0.1", "localhost"].includes(origin.hostname))) throw new Error("EC requires HTTPS")
+  if (origin.protocol !== "https:" && !localTestHttp(origin)) throw new Error("EC requires HTTPS")
   if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") throw new Error("Use an exact EC origin")
   const hmac = { keyId: required("AGENT_EC_KEY_ID"), secret: required("AGENT_EC_HMAC_SECRET") }
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(hmac.keyId) || Buffer.byteLength(hmac.secret) < 32) throw new Error("Invalid EC HMAC credentials")
   const resolve = async (executionRef: Hex) => {
     const path = "/internal/agent/executions/resolve", body = JSON.stringify({ executionRef })
     const authorization = await signRequest({ key: hmac, method: "POST", path, body: new TextEncoder().encode(body) })

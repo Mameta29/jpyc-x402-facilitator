@@ -62,9 +62,10 @@ Two ready-to-deploy apps sharing the same `@jpyc-x402/facilitator` core:
 | [`apps/worker`](./apps/worker) | **Cloudflare Workers + Durable Objects** — edge global, $5/mo, nonce serialization via DO `blockConcurrencyWhile` | CF (one DO class file) |
 | [`apps/server`](./apps/server) | **Node + Hono** for Render / Fly / VPS — single-replica, in-process per-chain mutex | None (plain Docker) |
 
-Both deploy DB-free. Pick one per environment; you can switch back and
-forth with no code change in the resource server (only `FACILITATOR_URL`
-moves).
+The legacy EIP-3009 path is available on both hosts. The opt-in ERC-7710
+agent purchase path runs only on Node 22.14+ with a dedicated relayer and
+persistent SQLite storage; Worker execution is disabled. Follow the
+[Polygon agent operation guide](./docs/agent-commerce/POLYGON.md) for that path.
 
 ## Hosted facilitator
 

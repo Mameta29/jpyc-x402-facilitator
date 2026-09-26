@@ -1,7 +1,7 @@
 /**
  * Production entry point for the JPYC x402 facilitator (Node).
  *
- * DB-free composition:
+ * Legacy EIP-3009 composition:
  *   env config →
  *     ExactEvmFacilitator (verify+settle on EVM) →
  *     InProcessSettleRunner (per-chain mutex for nonce serialization) →
@@ -10,8 +10,9 @@
  *     Hono app
  *
  * Designed for single-machine deployments — Fly.io max-machines-running=1,
- * Render Starter, a self-hosted VPS. For multi-replica deployments use the
- * Cloudflare Workers app (apps/worker) which serializes via Durable Objects.
+ * Render Starter, a self-hosted VPS. The optional ERC-7710 agent lane uses
+ * a persistent SQLite journal and a dedicated relayer. Worker/DO hosts the
+ * legacy lane only; it does not support agent execution.
  */
 
 import { serve } from "@hono/node-server"

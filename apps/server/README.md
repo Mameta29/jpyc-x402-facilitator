@@ -1,10 +1,10 @@
 # @jpyc-x402/server
 
-Deployable **Node + Hono** server hosting the JPYC x402 facilitator. DB-free.
+Deployable **Node + Hono** server hosting the JPYC x402 facilitator.
 
-This is the "single-machine" deployment target. For multi-replica edge
-deployments, use [`apps/worker`](../worker) (Cloudflare Workers + Durable
-Objects).
+This is the single-machine deployment target. The opt-in ERC-7710 agent
+lane requires Node 22.14+, a persistent writable SQLite volume and a dedicated
+relayer. See [Polygon configuration and recovery](../../docs/agent-commerce/POLYGON.md).
 
 ## When to use this vs. apps/worker
 
@@ -14,9 +14,10 @@ Objects).
 | Cloudflare-native deployment, edge global | apps/worker |
 | Need stronger nonce serialization across many replicas | apps/worker (Durable Object) |
 | Want a dependency-light, easy-to-fork reference | **apps/server** |
+| Polygon ERC-7710 / PurchaseGate agent purchases | **apps/server** with a persistent disk |
 
-Both apps consume the same `@jpyc-x402/facilitator` core, so feature parity
-is automatic.
+Both apps share the legacy EIP-3009 core. Worker/DO agent execution is disabled;
+switching hosts does not migrate the agent journal or its nonce lane.
 
 ## Local development
 
@@ -27,9 +28,15 @@ pnpm --filter @jpyc-x402/server dev
 # → http://localhost:8402
 ```
 
-No database to spin up — the facilitator is intentionally stateless.
+Legacy-only mode requires no application database. Agent mode stores raw
+transactions before sending and resumes them from SQLite after a restart.
 
 ## Production deploy
+
+The examples below describe the legacy lane. Agent deployments additionally need
+all settings in the [environment template](../../docs/agent-commerce/facilitator.env.example)
+and one persistent journal volume. Use a secret manager or `node --env-file=/secure/facilitator.env apps/server/dist/main.js`;
+the server does not automatically load a `.env` file.
 
 Three things you actually need:
 

@@ -1,0 +1,32 @@
+{
+  "scope": "Local Polygon fork and disposable PostgreSQL only. Actual JPYC/USDC/Uniswap/7702, isolated AI ECDSA key, both repo settlement code and EC orders. Manually signed wallet parents; test RSA World IdP and controlled Intercepta/ECB/Coinbase responses. No public writes or real MetaMask acceptance.",
+  "passed": [
+    "full EC setup with on-chain owner registration",
+    "9000 automatic JPYC purchase",
+    "signed raw durable before broadcast",
+    "SQLite restart after accepted RPC response loss",
+    "EC DB failure then one-order recovery without re-payment",
+    "2000 period exception with consent and fresh same-person RSA World verification",
+    "actual USDC swap, net debit and refund",
+    "11000 remains in period ledger after exception and policy update",
+    "payment retry pays once",
+    "risk warning denied with inventory returned and no broadcast",
+    "owner revoke stops policy",
+    "two finalized merchant orders match token transfers"
+  ],
+  "orders": [
+    {
+      "order_number": "AG-5B4D36DC1AA14654A6CA30B166EB8346",
+      "tx_hash": "0x673fbfe0496312e2daa93d3f41a01a52db338f533f77b91e744ce00ff6f5a8ae",
+      "agent_finalized": true
+    },
+    {
+      "order_number": "AG-CD6606EDC511415A82F9E2E061F33E63",
+      "tx_hash": "0xfb6aa09b16cfe709362d5468f5dce9ce299b3d39ba00c199e1e2fcda418fd5e2",
+      "agent_finalized": true
+    }
+  ],
+  "spentJpyc": "11000000000000000000000",
+  "actualInput": "12705957",
+  "maximumInput": "12769487"
+}
