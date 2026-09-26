@@ -8,3 +8,4 @@ export * from "./revert.js"
 export * from "./settle.js"
 export * from "./viem-chains.js"
 export * from "./erc7710/engine.js"
+export * from './erc7710/gate-actions.js'

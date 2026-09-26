@@ -7,4 +7,6 @@ export interface AgentCommerceHandler {
   verify(request: AgentVerifyRequest): Promise<VerifyResponse>
   settle(request: AgentVerifyRequest): Promise<SettlementResponse>
   status(key: PaymentKey): Promise<Record<string, unknown>>
+  gateAction?(request: unknown): Promise<Record<string, unknown>>
+  gateActionStatus?(actionId: string): Promise<Record<string, unknown>>
 }

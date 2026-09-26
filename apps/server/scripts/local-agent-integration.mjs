@@ -8,7 +8,7 @@ import { createPublicClient, http, erc20Abi, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { AgentPurchaseEngine } from '@jpyc-x402/evm';
-import { parseEnvelope, paymentKeyId } from '@jpyc-ec/agent-commerce';
+import { parseEnvelope, paymentKeyId, gateAbi } from '@jpyc-ec/agent-commerce';
 import { AgentJournal } from '../dist/agent-journal.js';
 import { DurableAgentRunner } from '../dist/agent-runner.js';
 
@@ -25,11 +25,12 @@ const request={x402Version:2,paymentRequirements:requirements,paymentPayload:{x4
 const dir=await mkdtemp(join(tmpdir(),'agent-real-recovery-'));let journal=new AgentJournal(join(dir,'journal.sqlite'));
 let sent=0;
 const faultyClient={...client,sendRawTransaction:async input=>{
-  const jobs=journal.incomplete();assert.equal(jobs.length,1);assert.equal(jobs[0].raw_tx,input.serializedTransaction);
+  const jobs=journal.incomplete().filter(j=>j.raw_tx===input.serializedTransaction);assert.equal(jobs.length,1);
   sent++;await client.sendRawTransaction(input);throw new Error('deliberately lost RPC response');
 }};
 const engine=new AgentPurchaseEngine(f.manifest,faultyClient,account.address,async()=>f.envelope);
 try {
+  await assert.rejects(new AgentPurchaseEngine({...f.manifest,contracts:f.manifest.contracts.slice(0,-1)},client,account.address,async()=>f.envelope).verifyDeployment(),/missing_dependency_codehash/);
   const before=await client.readContract({address:f.manifest.jpyc,abi:erc20Abi,functionName:'balanceOf',args:[e.order.payTo]});
   const runner=new DurableAgentRunner(engine,journal,account);
   assert.equal((await runner.verify(request)).isValid,true);
@@ -43,7 +44,18 @@ try {
   const key={method:'erc7710',network:'eip155:31337',payer:e.order.account,gate:f.manifest.gate,orderId:e.order.orderId};
   assert.equal((await restarted.status(key)).state,'confirmed');
   assert.equal(journal.get(paymentKeyId(key)).state,'confirmed');
-  const evidence={scope:'Local real 7702/official MetaMask Manager; test token. Node SQLite restart, real transaction and receipt verification.',passed:['Gate simulation through self-hosted facilitator engine','signed raw persisted before broadcast','RPC accepted send but response deliberately lost','fresh runner and DB connection recover the original hash','Gate PurchasePaid and owner→merchant Transfer matched','exactly one token payment and one network broadcast'],transaction:result.transaction};
+  const actions=[];
+  for(const action of f.gateActions){
+    const current=new DurableAgentRunner(engine,journal,account),first=await current.gateAction(action),broadcasts=sent;
+    assert.ok(first.transaction);journal.close();journal=new AgentJournal(join(dir,'journal.sqlite'));
+    await client.request({method:'evm_mine',params:[]});
+    const recovered=new DurableAgentRunner(engine,journal,account),done=await recovered.gateAction(action);
+    assert.equal(done.state,'confirmed');assert.equal(done.transaction,first.transaction);assert.equal(sent,broadcasts);
+    assert.equal((await recovered.gateActionStatus(done.actionId)).state,'confirmed');actions.push({kind:action.kind,transaction:done.transaction});
+  }
+  assert.equal(await client.readContract({address:f.manifest.gate,abi:gateAbi,functionName:'active',args:[e.order.account]}),false);
+  assert.equal(await client.readContract({address:f.manifest.gate,abi:gateAbi,functionName:'spentJpyc',args:[e.order.account,e.order.policyId,0n]}),11001n*10n**18n);
+  const evidence={scope:'Local real 7702/official MetaMask Manager; test token. Node SQLite restart, real transaction and receipt verification.',passed:['Gate simulation through self-hosted facilitator engine','signed raw persisted before broadcast','RPC accepted send but response deliberately lost','fresh runner and DB connection recover the original hash','Gate PurchasePaid and owner→merchant Transfer matched','exactly one token payment and one network broadcast','owner-signed policy update and revoke use the same durable nonce lane','both lifecycle actions recover after RPC response loss and restart','policy revoke is on chain and spending survives version update'],transaction:result.transaction,actions};
   await writeFile(`${fixturePath}/facilitator-evidence.json`,JSON.stringify(evidence,null,2)+'\n');
   console.log(JSON.stringify(evidence));
 } finally {journal.close();await rm(dir,{recursive:true,force:true});}

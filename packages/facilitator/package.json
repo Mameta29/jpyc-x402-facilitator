@@ -39,7 +39,7 @@
     "hono": "^4.6.0",
     "viem": "^2.21.0",
     "zod": "^3.23.0",
-    "@jpyc-ec/agent-commerce": "file:../../vendor/jpyc-ec-agent-commerce-0.1.0.tgz"
+    "@jpyc-ec/agent-commerce": "file:../../vendor/jpyc-ec-agent-commerce-0.1.1.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

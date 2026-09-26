@@ -1,14 +1,16 @@
 import { evidenceDigest, paymentKeyId, LIMITS, type PaymentKey } from "@jpyc-ec/agent-commerce"
-import { AgentPaymentError, AgentPurchaseEngine, type PreparedPurchase } from "@jpyc-x402/evm"
+import { AgentPaymentError, AgentPurchaseEngine, GateActionEngine, type PreparedGateAction, type PreparedPurchase } from "@jpyc-x402/evm"
 import type { AgentCommerceHandler } from "@jpyc-x402/facilitator"
 import type { AgentVerifyRequest, SettlementResponse, SupportedKind } from "@jpyc-x402/shared"
 import { keccak256, type PrivateKeyAccount, type Hex } from "viem"
-import { AgentJournal, type Job, type UnsignedPurchase } from "./agent-journal.js"
+import { AgentJournal, type Job, type UnsignedPurchase, type PreparedJob } from "./agent-journal.js"
 
 export class DurableAgentRunner implements AgentCommerceHandler {
   private readonly running = new Map<string, Promise<void>>()
+  readonly actions: GateActionEngine
   constructor(readonly engine: AgentPurchaseEngine, readonly journal: AgentJournal, private readonly account: PrivateKeyAccount) {
     if (engine.relayer.toLowerCase() !== account.address.toLowerCase()) throw new Error("Wrong agent relayer")
+    this.actions = new GateActionEngine(engine)
   }
   supported(): SupportedKind[] {
     const m = this.engine.manifest
@@ -26,21 +28,42 @@ export class DurableAgentRunner implements AgentCommerceHandler {
         const p = await this.engine.prepare(request.paymentPayload, request.paymentRequirements)
         const existing = this.journal.get(paymentKeyId(p.paymentKey))
         if (existing && (existing.intent_hash !== p.intentHash || existing.request_id !== requestId)) throw new AgentPaymentError("payment_key_conflict", 409)
-        const client = this.engine.client
-        const [pendingNonce, gas, fees] = await Promise.all([
-          client.getTransactionCount({ address: this.account.address, blockTag: "pending" }),
-          client.estimateGas({ account: this.account.address, to: p.to, data: p.data, value: 0n }),
-          client.estimateFeesPerGas(),
-        ])
-        if (gas > 3_000_000n || fees.maxFeePerGas > 200_000_000_000n) throw new AgentPaymentError("relayer_cost_limit", 409)
-        const unsigned = { chainId: p.chainId, to: p.to, data: p.data, value: "0" as const, gas: (gas*12n/10n+50000n).toString(), maxFeePerGas: fees.maxFeePerGas.toString(), maxPriorityFeePerGas: fees.maxPriorityFeePerGas.toString() }
-        job = this.journal.reserve(p, requestId, this.account.address, pendingNonce, unsigned)
+        job = await this.reserve(p, requestId)
       }
       await this.recover(job.payment_key)
       return this.response(this.journal.get(job.payment_key)!)
     } catch (error) {
       return { success: false, errorReason: error instanceof AgentPaymentError ? error.code : "purchase_settlement_unavailable", payer: request.paymentPayload.payload.delegator, transaction: "", network: request.paymentRequirements.network }
     }
+  }
+  private async reserve(p: PreparedJob, requestId: string) {
+    const client = this.engine.client
+    const [pendingNonce, gas, fees] = await Promise.all([
+      client.getTransactionCount({ address: this.account.address, blockTag: "pending" }),
+      client.estimateGas({ account: this.account.address, to: p.to, data: p.data, value: 0n }), client.estimateFeesPerGas(),
+    ])
+    if (gas > 3_000_000n || fees.maxFeePerGas > 200_000_000_000n) throw new AgentPaymentError("relayer_cost_limit", 409)
+    const unsigned = { chainId: p.chainId, to: p.to, data: p.data, value: "0" as const, gas: (gas*12n/10n+50000n).toString(), maxFeePerGas: fees.maxFeePerGas.toString(), maxPriorityFeePerGas: fees.maxPriorityFeePerGas.toString() }
+    return this.journal.reserve(p, requestId, this.account.address, pendingNonce, unsigned)
+  }
+  async gateAction(request: unknown): Promise<Record<string, unknown>> {
+    const id = evidenceDigest({ gateAction: request })
+    let job = this.journal.findRequest(id)
+    if (!job) job = await this.reserve(await this.actions.prepare(request), id)
+    if (!("kind" in (JSON.parse(job.prepared) as PreparedJob))) throw new AgentPaymentError("action_key_conflict", 409)
+    await this.recover(job.payment_key)
+    return this.actionResponse(this.journal.get(job.payment_key)!)
+  }
+  async gateActionStatus(actionId: string): Promise<Record<string, unknown>> {
+    const job = this.journal.findRequest(actionId)
+    if (!job || !("kind" in (JSON.parse(job.prepared) as PreparedJob))) return { known: false }
+    await this.recover(job.payment_key)
+    return { known: true, ...this.actionResponse(this.journal.get(job.payment_key)!) }
+  }
+  private actionResponse(job: Job): Record<string, unknown> {
+    const p = JSON.parse(job.prepared) as PreparedGateAction
+    return { actionId: job.request_id, action: p.action, actionHash: job.intent_hash, state: job.state, transaction: job.tx_hash,
+      finalized: Boolean(job.finalized), ...(job.receipt ? JSON.parse(job.receipt) as Record<string, unknown> : {}) }
   }
   private response(job: Job): SettlementResponse {
     const p = JSON.parse(job.prepared) as PreparedPurchase
@@ -67,7 +90,7 @@ export class DurableAgentRunner implements AgentCommerceHandler {
   private async recoverOne(key: string) {
     let job = this.journal.get(key)!
     if (!job || job.finalized || job.state === "expired_unpaid") return
-    const p = JSON.parse(job.prepared) as PreparedPurchase, client = this.engine.client
+    const p = JSON.parse(job.prepared) as PreparedJob, client = this.engine.client
     try {
       if (!job.raw_tx) {
         // Nonce and all transaction fields were committed before signing.
@@ -81,7 +104,7 @@ export class DurableAgentRunner implements AgentCommerceHandler {
       if (!receipt) {
         const unsigned = JSON.parse(job.unsigned_tx) as UnsignedPurchase
         const finalizedNonce = await client.getTransactionCount({ address: this.account.address, blockTag: "finalized" })
-        if (finalizedNonce > unsigned.nonce && await this.engine.unpaidAfterFinality(p)) { this.journal.update(key, "expired_unpaid", null, null, true); return }
+        if (!("kind" in p) && finalizedNonce > unsigned.nonce && await this.engine.unpaidAfterFinality(p)) { this.journal.update(key, "expired_unpaid", null, null, true); return }
         // Even an expired transaction must consume its reserved nonce. Sending
         // the identical bytes lets Gate revert safely and avoids a permanent
         // nonce gap blocking later orders after a crash before broadcast.
@@ -95,12 +118,12 @@ export class DurableAgentRunner implements AgentCommerceHandler {
       if (!receipt) return
       const block = await client.getBlock({ blockNumber: receipt.blockNumber })
       if (block.hash !== receipt.blockHash) { this.journal.update(key, "unknown", null, "receipt_reorg"); return }
-      const latest = await client.getBlockNumber()
+      const latest = await client.getBlockNumber({ cacheTime: 0 })
       const finalized = await client.getBlock({ blockTag: "finalized" })
       const final = finalized.number >= receipt.blockNumber
       const details = { blockNumber: receipt.blockNumber.toString(), blockHash: receipt.blockHash }
       if (receipt.status === "reverted") { this.journal.update(key, "reverted", details, null, final); return }
-      if (!this.engine.verifyReceipt(receipt, p)) { this.journal.update(key, "unknown", details, "receipt_mismatch"); return }
+      if (!("kind" in p ? this.actions.verifyReceipt(receipt, p) : this.engine.verifyReceipt(receipt, p))) { this.journal.update(key, "unknown", details, "receipt_mismatch"); return }
       if (latest - receipt.blockNumber + 1n < 2n) { this.journal.update(key, "broadcast", details); return }
       this.journal.update(key, "confirmed", details, null, final)
     } catch {

@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import { mkdirSync, chmodSync } from "node:fs"
 import { dirname } from "node:path"
 import { paymentKeyId } from "@jpyc-ec/agent-commerce"
-import { AgentPaymentError, type PreparedPurchase } from "@jpyc-x402/evm"
+import { AgentPaymentError, type PreparedPurchase, type PreparedGateAction } from "@jpyc-x402/evm"
 import type { Hex } from "viem"
 
 // Keep this Node-only built-in out of Vite's older builtin resolver.
@@ -12,6 +12,7 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof
 export type UnsignedPurchase = { chainId: number; to: Hex; data: Hex; value: "0"; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string; nonce: number }
 export type JobState = "reserved" | "prepared" | "broadcast" | "confirmed" | "reverted" | "unknown" | "expired_unpaid"
 export type Job = { payment_key: string; request_id: string; intent_hash: Hex; prepared: string; unsigned_tx: string; raw_tx: Hex | null; tx_hash: Hex | null; state: JobState; receipt: string | null; finalized: number; last_error: string | null }
+export type PreparedJob = PreparedPurchase | PreparedGateAction
 
 /** WAL + FULL sync. Stores signed bytes before broadcasting, on durable storage. */
 export class AgentJournal {
@@ -33,8 +34,8 @@ export class AgentJournal {
   }
   get(key: string): Job | undefined { return this.db.prepare("SELECT * FROM agent_payment_jobs WHERE payment_key=?").get(key) as Job | undefined }
   findRequest(id: string): Job | undefined { return this.db.prepare("SELECT * FROM agent_payment_jobs WHERE request_id=?").get(id) as Job | undefined }
-  reserve(prepared: PreparedPurchase, requestId: string, sender: string, pendingNonce: number, unsigned: Omit<UnsignedPurchase, "nonce">): Job {
-    const key = paymentKeyId(prepared.paymentKey), lane = `${prepared.chainId}:${sender.toLowerCase()}`
+  reserve(prepared: PreparedJob, requestId: string, sender: string, pendingNonce: number, unsigned: Omit<UnsignedPurchase, "nonce">): Job {
+    const key = 'kind' in prepared ? prepared.jobKey : paymentKeyId(prepared.paymentKey), lane = `${prepared.chainId}:${sender.toLowerCase()}`
     this.db.exec("BEGIN IMMEDIATE")
     try {
       const existing = this.get(key)

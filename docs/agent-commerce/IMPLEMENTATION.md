@@ -32,3 +32,11 @@ The Node host supports explicit `erc7710` + `jpyc.purchase` dispatch alongside E
 Node 22.14+ is required (`node:sqlite` is experimental on Node 22). Use a persistent writable volume and a dedicated agent relayer key. Worker/DO support is intentionally disabled and not advertised. No public deployment has occurred.
 
 Enable only with `AGENT_COMMERCE_ENABLED=true`, `AGENT_DEPLOYMENT_MANIFEST`, `AGENT_RELAYER_PRIVATE_KEY`, `AGENT_RPC_URL`, `AGENT_EC_ORIGIN`, `AGENT_EC_KEY_ID`, `AGENT_EC_HMAC_SECRET`, `AGENT_JOURNAL_PATH`, and existing `FACILITATOR_HMAC_KEYS`. The manifest must pin Gate, Manager, account implementation, adapter, enforcers, token proxy/implementation and router/factory code.
+
+## Owner-signed lifecycle relay
+
+Authenticated `POST /agent/gate-action` accepts only typed register/update/revoke/cancel requests signed by the account owner; the target is the pinned Gate, with zero native value and a maximum five-minute deadline. It uses the purchase journal's same atomic nonce allocator, records signed bytes before broadcast, and verifies the corresponding Gate event. `POST /agent/gate-action-status` takes `actionId`. It never accepts a request URL, target address or arbitrary calldata.
+
+Local real-chain integration now also recovers a policy update and revoke after accepted-but-lost RPC responses and SQLite restart. Both preserve their original hash, the policy is revoked on chain, and period spending survives the version update. Six HTTP dispatch tests verify authentication, body size, strict method dispatch, unsupported-runtime rejection and unknown/pending semantics. Protocol tarball 0.1.1 is pinned with source commit and SHA-256 in `vendor/agent-commerce-source.json`.
+
+Deployment checks follow the Gate's actual immutable dependencies to require validator, seven enforcers, router and factory code pins. Sepolia requires both token proxy implementation pins. Each entry supports an explicit `slot`; JPYC uses the EIP-1967 default. Circle's [FiatToken proxy implementation](https://github.com/circlefin/stablecoin-evm/blob/master/contracts/upgradeability/UpgradeabilityProxy.sol) uses `0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3`. Deployment tooling must verify the actual chain slot/code before saving a manifest.

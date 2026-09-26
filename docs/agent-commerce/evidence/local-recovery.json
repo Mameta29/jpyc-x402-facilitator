@@ -6,7 +6,20 @@
     "RPC accepted send but response deliberately lost",
     "fresh runner and DB connection recover the original hash",
     "Gate PurchasePaid and owner→merchant Transfer matched",
-    "exactly one token payment and one network broadcast"
+    "exactly one token payment and one network broadcast",
+    "owner-signed policy update and revoke use the same durable nonce lane",
+    "both lifecycle actions recover after RPC response loss and restart",
+    "policy revoke is on chain and spending survives version update"
   ],
-  "transaction": "0x3b012563bfb9f8da9be3ebcd6dde3cfd18fbbc4f98a2757ae993a0dbf0a842ed"
+  "transaction": "0xd99fce32ea40cbc99798c039bbe74b2a38975645ad3a324866d80bf058fe2392",
+  "actions": [
+    {
+      "kind": "update",
+      "transaction": "0x12624191af6e9b3247b013517f248a002f52932cef66f77daafb896f7de1c8f8"
+    },
+    {
+      "kind": "revoke",
+      "transaction": "0x30fd032f28129fc55d40570d592884ef48c7d2b314cc209bd88ca9f05d4f0c92"
+    }
+  ]
 }

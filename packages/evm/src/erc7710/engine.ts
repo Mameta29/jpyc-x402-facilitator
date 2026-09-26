@@ -2,12 +2,12 @@ import {
   gateAbi, digest, gateDomain, requirementsHash, structHash, parseEnvelope,
   type Erc7710Payload, type Erc7710Requirements, type PaymentKey,
 } from "@jpyc-ec/agent-commerce"
-import { decodeEventLog, encodeFunctionData, erc20Abi, keccak256, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem"
+import { decodeEventLog, encodeFunctionData, erc20Abi, keccak256, parseAbi, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem"
 
 export type AgentManifest = {
   chainId: number; gate: Address; manager: Address; jpyc: Address; usdc: Address; accountImplementation: Address; adapter: Address;
   contracts: { address: Address; codeHash: Hex }[];
-  proxyImplementations?: { proxy: Address; implementation: Address; codeHash: Hex }[];
+  proxyImplementations?: { proxy: Address; implementation: Address; codeHash: Hex; slot?: Hex }[];
 }
 export type PreparedPurchase = {
   paymentKey: Extract<PaymentKey, { method: "erc7710" }>; intentHash: Hex;
@@ -28,6 +28,9 @@ export class AgentPurchaseEngine {
     for (const a of [manifest.gate, manifest.manager, manifest.jpyc, manifest.usdc, manifest.accountImplementation, manifest.adapter]) {
       assert(manifest.contracts.some(c => same(c.address, a)), "missing_contract_codehash")
     }
+    if (manifest.chainId === 11155111) {
+      for (const token of [manifest.jpyc, manifest.usdc]) assert(Boolean(manifest.proxyImplementations?.some(p => same(p.proxy, token))), "missing_token_implementation_pin")
+    }
   }
   async verifyDeployment() {
     assert(await this.client.getChainId() === this.manifest.chainId, "rpc_chain_mismatch")
@@ -36,11 +39,29 @@ export class AgentPurchaseEngine {
       assert(Boolean(code && code !== "0x" && same(keccak256(code), expected.codeHash)), "deployment_code_changed")
     }))
     await Promise.all((this.manifest.proxyImplementations ?? []).map(async p => {
-      const slot = await this.client.getStorageAt({ address: p.proxy, slot: IMPLEMENTATION_SLOT })
+      const slot = await this.client.getStorageAt({ address: p.proxy, slot: p.slot ?? IMPLEMENTATION_SLOT })
       assert(Boolean(slot && same(`0x${slot.slice(-40)}`, p.implementation)), "proxy_implementation_changed")
       const code = await this.client.getCode({ address: p.implementation })
       assert(Boolean(code && same(keccak256(code), p.codeHash)), "proxy_code_changed")
     }))
+    const m = this.manifest
+    const pinned = (a: Address) => assert(m.contracts.some(c => same(c.address, a)), "missing_dependency_codehash")
+    const [manager, jpyc, usdc, implementation, adapter, validator] = await Promise.all([
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'manager' }),
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'settlementToken' }),
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'inputToken' }),
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'accountImplementation' }),
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'fundingAdapter' }),
+      this.client.readContract({ address: m.gate, abi: gateAbi, functionName: 'validator' }),
+    ])
+    assert(same(manager, m.manager) && same(jpyc, m.jpyc) && same(usdc, m.usdc) && same(implementation, m.accountImplementation) && same(adapter, m.adapter), 'gate_manifest_mismatch')
+    pinned(validator)
+    const dependencies = await Promise.all([
+      ...Array.from({ length: 7 }, (_, i) => this.client.readContract({ address: validator, abi: parseAbi(['function enforcers(uint256) view returns (address)']), functionName: 'enforcers', args: [BigInt(i)] })),
+      this.client.readContract({ address: m.adapter, abi: parseAbi(['function router() view returns (address)']), functionName: 'router' }),
+      this.client.readContract({ address: m.adapter, abi: parseAbi(['function factory() view returns (address)']), functionName: 'factory' }),
+    ])
+    dependencies.forEach(pinned)
   }
   async prepare(payload: Erc7710Payload, requirements: Erc7710Requirements): Promise<PreparedPurchase> {
     const m = this.manifest, a = payload.accepted, x = payload.extensions["jpyc.purchase"]

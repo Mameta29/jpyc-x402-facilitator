@@ -48,6 +48,8 @@ import type { SettleRunner } from "./settle-runner.js"
 import { HmacAuthenticator } from "./auth.js"
 import type { AgentCommerceHandler } from "./agent-commerce.js"
 import { bodyLimit } from "hono/body-limit"
+import { parseGateAction } from '@jpyc-ec/agent-commerce'
+import { AgentPaymentError } from '@jpyc-x402/evm'
 
 export interface AppDeps {
   agentCommerce?: AgentCommerceHandler
@@ -157,6 +159,25 @@ export function createApp(deps: AppDeps) {
   app.use("/settle", authMiddleware)
   app.use("/settle-status", authMiddleware)
   app.use("/supported", authMiddleware)
+  app.use("/agent/gate-action", authMiddleware)
+  app.use("/agent/gate-action-status", authMiddleware)
+
+  app.post('/agent/gate-action', async c => {
+    if (!deps.authenticator?.hasKeys || !deps.agentCommerce?.gateAction) return c.json({ error: 'gate_action_unavailable' }, 503)
+    try {
+      const input: unknown = await c.req.json(), parsed = parseGateAction(input)
+      deps.rateLimiter.consume('policy' in parsed ? parsed.policy.account : parsed.account, 0n)
+      return c.json(await deps.agentCommerce.gateAction(input))
+    } catch (e) {
+      return c.json({ error: e instanceof AgentPaymentError ? e.code : 'gate_action_rejected' }, e instanceof AgentPaymentError && e.httpStatus === 409 ? 409 : 400)
+    }
+  })
+  app.post('/agent/gate-action-status', async c => {
+    if (!deps.authenticator?.hasKeys || !deps.agentCommerce?.gateActionStatus) return c.json({ error: 'gate_action_unavailable' }, 503)
+    const input: unknown = await c.req.json().catch(() => null)
+    if (!input || typeof input !== 'object' || !('actionId' in input) || typeof input.actionId !== 'string' || !/^0x[0-9a-f]{64}$/.test(input.actionId)) return c.json({ error: 'invalid_action_id' }, 400)
+    return c.json(await deps.agentCommerce.gateActionStatus(input.actionId))
+  })
 
   app.get("/health", (c) => c.json({ ok: true }))
 
