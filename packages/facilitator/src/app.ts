@@ -48,7 +48,7 @@ import type { SettleRunner } from "./settle-runner.js"
 import { HmacAuthenticator } from "./auth.js"
 import type { AgentCommerceHandler } from "./agent-commerce.js"
 import { bodyLimit } from "hono/body-limit"
-import { parseGateAction } from '@jpyc-ec/agent-commerce'
+import { parseGateAction } from '@jpyc-ec/agent-commerce/core'
 import { AgentPaymentError } from '@jpyc-x402/evm'
 
 export interface AppDeps {

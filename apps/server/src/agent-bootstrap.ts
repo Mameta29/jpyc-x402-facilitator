@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { createPublicClient, http, type Hex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { AgentPurchaseEngine, type AgentManifest } from "@jpyc-x402/evm"
+import { AgentPurchaseEngine, type AgentManifest } from "@jpyc-x402/evm/erc7710"
 import { signRequest } from "@jpyc-x402/facilitator"
 import { AgentJournal } from "./agent-journal.js"
 import { DurableAgentRunner } from "./agent-runner.js"

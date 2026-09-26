@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { erc7710PayloadSchema, erc7710RequirementsSchema, paymentKeySchema } from "@jpyc-ec/agent-commerce"
+import { erc7710PayloadSchema, erc7710RequirementsSchema, paymentKeySchema } from "@jpyc-ec/agent-commerce/core"
 import { paymentPayloadSchema, paymentRequirementsSchema } from "./schemas.js"
 
 // Legacy schemas/types remain EIP-3009 for existing clients. HTTP dispatch uses

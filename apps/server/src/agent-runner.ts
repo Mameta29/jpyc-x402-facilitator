@@ -1,5 +1,5 @@
 import { evidenceDigest, paymentKeyId, LIMITS, type PaymentKey } from "@jpyc-ec/agent-commerce"
-import { AgentPaymentError, AgentPurchaseEngine, GateActionEngine, type PreparedGateAction, type PreparedPurchase } from "@jpyc-x402/evm"
+import { AgentPaymentError, AgentPurchaseEngine, GateActionEngine, type PreparedGateAction, type PreparedPurchase } from "@jpyc-x402/evm/erc7710"
 import type { AgentCommerceHandler } from "@jpyc-x402/facilitator"
 import type { AgentVerifyRequest, SettlementResponse, SupportedKind } from "@jpyc-x402/shared"
 import { keccak256, type PrivateKeyAccount, type Hex } from "viem"

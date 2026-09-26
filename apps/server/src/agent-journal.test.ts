@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 import { keccak256, toHex } from "viem"
 import { AgentJournal } from "./agent-journal.js"
-import type { PreparedPurchase } from "@jpyc-x402/evm"
+import type { PreparedPurchase } from "@jpyc-x402/evm/erc7710"
 
 const dirs: string[] = [], journals: AgentJournal[] = []
 afterEach(() => { for (const j of journals.splice(0)) j.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })

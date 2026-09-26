@@ -15,9 +15,9 @@ export type PreparedPurchase = {
   chainId: number; to: Address; data: Hex; value: "0x0"; notAfter: number;
   expected: { gate: Address; orderId: Hex; orderHash: Hex; payer: Address; payTo: Address; token: Address; amount: string; inputToken: Address; maxInput: string; riskDigest: Hex; approvalId: Hex };
 }
-export class AgentPaymentError extends Error {
-  constructor(public readonly code: string, public readonly httpStatus = 400) { super(code) }
-}
+import { AgentPaymentError } from './errors.js'
+export { AgentPaymentError } from './errors.js'
+
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 const assert = (condition: boolean, code: string) => { if (!condition) throw new AgentPaymentError(code) }
 const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc" as Hex

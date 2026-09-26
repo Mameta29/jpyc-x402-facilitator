@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import { mkdirSync, chmodSync } from "node:fs"
 import { dirname } from "node:path"
 import { paymentKeyId } from "@jpyc-ec/agent-commerce"
-import { AgentPaymentError, type PreparedPurchase, type PreparedGateAction } from "@jpyc-x402/evm"
+import { AgentPaymentError, type PreparedPurchase, type PreparedGateAction } from "@jpyc-x402/evm/erc7710"
 import type { Hex } from "viem"
 
 // Keep this Node-only built-in out of Vite's older builtin resolver.

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), journal: vi.fn(), runner: vi.fn() }))
-vi.mock("@jpyc-x402/evm", () => ({ AgentPurchaseEngine: class { verifyDeployment = mocks.verify } }))
+vi.mock("@jpyc-x402/evm/erc7710", () => ({ AgentPurchaseEngine: class { verifyDeployment = mocks.verify } }))
 vi.mock("./agent-journal.js", () => ({ AgentJournal: mocks.journal }))
 vi.mock("./agent-runner.js", () => ({ DurableAgentRunner: mocks.runner }))
 import { createAgentRunner } from "./agent-bootstrap.js"
