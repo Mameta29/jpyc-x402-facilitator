@@ -100,8 +100,9 @@ async function main() {
     discovery: parseDiscoveryConfig(process.env.X402_DISCOVERY_RESOURCES) ?? undefined,
   })
 
-  const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.info(`[startup] listening on http://0.0.0.0:${info.port}`)
+  const hostname = process.env.HOST ?? "0.0.0.0"
+  const server = serve({ fetch: app.fetch, port: config.port, hostname }, (info) => {
+    console.info(`[startup] listening on http://${hostname}:${info.port}`)
     for (const id of config.enabledChainIds) {
       const c = getJpycChain(id)
       console.info(`  - ${c.shortName} (${id})  asset=${c.jpycAddress}`)

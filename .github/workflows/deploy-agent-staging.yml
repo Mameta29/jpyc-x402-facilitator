@@ -1,0 +1,49 @@
+name: Deploy agent Node service (staging)
+on:
+  push:
+    branches: [ETHGlobalTokyo2026]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-node-staging
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/ETHGlobalTokyo2026'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: staging
+      url: https://agent-facilitator-staging.jpyc-service.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @jpyc-x402/server... build
+      - name: Build and check portable Node bundle
+        run: |
+          node scripts/build-agent-staging.mjs
+          node scripts/smoke-agent-staging.mjs
+      - name: Deliver service to the dedicated VPS directory
+        env:
+          AGENT_STAGING_SSH_KEY: ${{ secrets.AGENT_STAGING_SSH_KEY }}
+          AGENT_STAGING_KNOWN_HOSTS: ${{ secrets.AGENT_STAGING_KNOWN_HOSTS }}
+          AGENT_STAGING_HOST: ${{ vars.AGENT_STAGING_HOST }}
+        run: |
+          umask 077
+          printf '%s\n' "$AGENT_STAGING_SSH_KEY" > "$RUNNER_TEMP/agent-staging-key"
+          printf '%s\n' "$AGENT_STAGING_KNOWN_HOSTS" > "$RUNNER_TEMP/agent-staging-hosts"
+          tar -C dist/agent-staging -czf "$RUNNER_TEMP/agent-staging.tgz" facilitator.mjs version.json
+          ssh -i "$RUNNER_TEMP/agent-staging-key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/agent-staging-hosts" "jpyc-agent-deploy@$AGENT_STAGING_HOST" "$GITHUB_SHA" < "$RUNNER_TEMP/agent-staging.tgz"
+      - name: Remove temporary SSH files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/agent-staging-key" "$RUNNER_TEMP/agent-staging-hosts"
