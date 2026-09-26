@@ -1,3 +1,5 @@
+> Latest user instruction, later on 2026-09-26: **testnet only, Polygon Amoy (80002)**. The old 137 target below is historical and must not be used for deployment or funding. Keep design 35 exact-order human exceptions, including period-budget overruns.
+
 # 実機テスト先の更新: Polygon PoS mainnet
 
 2026-09-26、ユーザーは「実機テストはPolygonとして伝えておきたい」と指定した。**実機テスト先はPolygon PoS mainnet（chainId 137 / eip155:137）。** 35の通常予算OR注文専用本人承認、失効・改変・承認再利用の拒否、LINE主デモの要件は維持する。

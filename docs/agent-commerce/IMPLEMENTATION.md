@@ -1,3 +1,5 @@
+> Latest 2026-09-26 decision: public staging tests use **Polygon Amoy testnet (80002)**. Agent bootstrap and engine reject mainnet 137. The historical mainnet/fork records below are not current deployment instructions. Exact-order human exceptions remain unchanged.
+
 # ETHGlobal Tokyo agent commerce implementation
 
 Started 2026-09-26 at the user’s explicit request. Design 35 is the architecture; review 36 defines the first delivery slice.
